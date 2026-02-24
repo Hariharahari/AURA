@@ -2,13 +2,13 @@ import os
 import glob  
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse 
+from fastapi.responses import FileResponse, StreamingResponse # 🔥 Added StreamingResponse
 from pydantic import BaseModel
 import uvicorn
 
 # Import the Document Generator
 from aura_agent import ProductionAgent, DependencyEngine
-# 🔥 Import the new Chatbot Agent
+# Import the new Chatbot Agent
 from chat_agent import ChatAgent
 
 app = FastAPI(title="AURA Backend API")
@@ -25,10 +25,12 @@ NEO4J_URI = "bolt://127.0.0.1:7687"
 NEO4J_USER = "neo4j"
 NEO4J_PASSWORD = "harish@12" # Make sure this matches your Neo4j password!
 
+# Instantiate the ChatAgent globally
+global_chat_agent = ChatAgent()
+
 class AnalyzeRequest(BaseModel):
     url: str
 
-# 🔥 NEW: Schema for Chat Requests
 class ChatRequest(BaseModel):
     repo_name: str
     question: str
@@ -47,19 +49,22 @@ def api_analyze_repo(request: AnalyzeRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# 🔥 NEW ENDPOINT: Handle Chatbot questions
+# 🔥 FULLY UPGRADED: True Streaming Endpoint
 @app.post("/api/chat")
 def api_chat(request: ChatRequest):
     try:
-        chat_agent = ChatAgent()
-        answer = chat_agent.ask_question(request.repo_name, request.question)
-        return {"answer": answer}
+        # Get the generator from the global agent
+        response_generator = global_chat_agent.ask_question(request.repo_name, request.question)
+        
+        # Return a StreamingResponse directly to the frontend
+        return StreamingResponse(response_generator, media_type="text/plain")
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/reports/{repo_name}")
 def api_get_report(repo_name: str):
-    filepath = f"AURA_REPORT_{repo_name}.md"
+    filepath = os.path.join("reports", f"AURA_REPORT_{repo_name}.md")
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="Report not found. Generate it first.")
     with open(filepath, "r", encoding="utf-8") as f:
@@ -75,15 +80,15 @@ def api_get_graph(repo_name: str):
 
 @app.get("/api/images/{image_name}")
 def api_get_image(image_name: str):
-    image_path = os.path.abspath(f"./{image_name}")
+    image_path = os.path.abspath(os.path.join("images", image_name))
     if os.path.exists(image_path):
         return FileResponse(image_path)
     raise HTTPException(status_code=404, detail="Image not found")
 
 @app.get("/api/repos")
 def api_list_repos():
-    files = glob.glob("AURA_REPORT_*.md")
-    repos = [f.replace("AURA_REPORT_", "").replace(".md", "") for f in files]
+    files = glob.glob(os.path.join("reports", "AURA_REPORT_*.md"))
+    repos = [os.path.basename(f).replace("AURA_REPORT_", "").replace(".md", "") for f in files]
     return {"repos": repos}
 
 if __name__ == "__main__":

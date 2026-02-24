@@ -23,7 +23,6 @@ import InputLabel from '@mui/material/InputLabel';
 import CircularProgress from '@mui/material/CircularProgress';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
-// Imported new icons for Dark Mode and Fullscreen
 import { 
   GitHub, Terminal, Timeline, Description, Share, Download, 
   Chat as ChatIcon, Send, LightMode, DarkMode, Fullscreen, FullscreenExit 
@@ -43,20 +42,17 @@ function App() {
   const [chatInput, setChatInput] = useState('');
   const [isChatting, setIsChatting] = useState(false);
 
-  // 🔥 NEW: UI Toggle States
-  const [isDarkMode, setIsDarkMode] = useState(true); // Dark is default
+  // UI Toggle States
+  const [isDarkMode, setIsDarkMode] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const mounted = useRef(true);
   const chatEndRef = useRef(null);
 
-  // 🔥 NEW: Dynamic Theme Generation
   const theme = useMemo(() => createTheme({
     palette: {
       mode: isDarkMode ? 'dark' : 'light',
-      primary: {
-        main: '#1976d2',
-      },
+      primary: { main: '#1976d2' },
       background: {
         default: isDarkMode ? '#02040a' : '#f1f5f9',
         paper: isDarkMode ? '#0d1117' : '#ffffff',
@@ -108,23 +104,63 @@ function App() {
     setChatHistory([{ role: 'bot', text: `Hello! I am AURA. You can ask me anything about the **${name}** codebase.` }]);
   };
 
+  // 🔥 FULLY UPGRADED: Handles the real-time stream from the backend
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
 
     const userMessage = chatInput;
-    setChatHistory(prev => [...prev, { role: 'user', text: userMessage }]);
+    
+    // Add user message AND an empty placeholder message for the bot
+    setChatHistory(prev => [
+      ...prev, 
+      { role: 'user', text: userMessage },
+      { role: 'bot', text: '' } // This empty text will be filled chunk-by-chunk
+    ]);
+    
     setChatInput('');
     setIsChatting(true);
 
     try {
-      const res = await axios.post('http://localhost:8000/api/chat', {
-        repo_name: repoName,
-        question: userMessage
+      const response = await fetch('http://localhost:8000/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repo_name: repoName,
+          question: userMessage
+        })
       });
-      setChatHistory(prev => [...prev, { role: 'bot', text: res.data.answer }]);
+
+      if (!response.ok) throw new Error("Network response was not ok");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let done = false;
+      let accumulatedAnswer = "";
+
+      // Loop through the chunks as they arrive from the backend
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        done = readerDone;
+
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true });
+          accumulatedAnswer += chunk;
+          
+          // Update the last message in the history (the bot's message) dynamically
+          setChatHistory(prev => {
+            const newHistory = [...prev];
+            newHistory[newHistory.length - 1].text = accumulatedAnswer;
+            return newHistory;
+          });
+        }
+      }
     } catch (err) {
-      setChatHistory(prev => [...prev, { role: 'bot', text: "⚠️ Error connecting to the AURA Agent. Make sure the backend is running." }]);
+      setChatHistory(prev => {
+        const newHistory = [...prev];
+        newHistory[newHistory.length - 1].text = "⚠️ Error connecting to the AURA Agent. Make sure the backend is running.";
+        return newHistory;
+      });
     } finally {
       setIsChatting(false);
     }
@@ -134,7 +170,6 @@ function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       
-      {/* PERFECT PDF PRINT STYLES */}
       <GlobalStyles styles={{
         '@media print': {
           '.no-print': { display: 'none !important' },
@@ -164,7 +199,6 @@ function App() {
         '@media print': { display: 'block !important', height: 'auto !important' }
       }}>
         
-        {/* Hide Appbar in Fullscreen and Print */}
         {!isFullscreen && (
           <AppBar position="static" sx={{ 
             bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider',
@@ -177,7 +211,6 @@ function App() {
               </Typography>
               <Timeline sx={{ mr: 2, color: 'success.main', animation: 'pulse 2s infinite' }} />
               
-              {/* 🔥 NEW: Theme Toggle Button */}
               <Tooltip title={`Switch to ${isDarkMode ? 'Light' : 'Dark'} Mode`}>
                 <IconButton onClick={() => setIsDarkMode(!isDarkMode)} sx={{ mr: 2, color: 'text.primary' }}>
                   {isDarkMode ? <LightMode /> : <DarkMode />}
@@ -242,7 +275,6 @@ function App() {
             '@media print': { display: 'block !important', height: 'auto !important', overflow: 'visible !important' }
           }}>
             
-            {/* Hide Tabs in Fullscreen and Print */}
             {!isFullscreen && (
               <Box sx={{ 
                 borderBottom: 1, borderColor: 'divider', px: 5,
@@ -261,7 +293,6 @@ function App() {
               '@media print': { display: 'block !important', overflow: 'visible !important', p: 0, m: 0 }
             }}>
               
-              {/* TAB 1: Document */}
               {page === 'report' && (
                 <Container maxWidth={isFullscreen ? false : "lg"} sx={{ height: '100%', '@media print': { maxWidth: '100% !important', p: 0, m: 0 } }}>
                   <Card sx={{ 
@@ -278,7 +309,6 @@ function App() {
                     }}>
                       <Typography variant="h5" sx={{ color: 'text.primary', fontWeight: 'bold' }}>Repository Analysis Report</Typography>
                       <Box sx={{ display: 'flex', gap: 2 }}>
-                        {/* 🔥 NEW: Fullscreen Toggle for Document */}
                         <Button 
                           variant="outlined" 
                           startIcon={isFullscreen ? <FullscreenExit /> : <Fullscreen />} 
@@ -293,7 +323,6 @@ function App() {
                     <Box sx={{ position: 'relative' }}>
                       <Box sx={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 4, bgcolor: 'primary.main', opacity: 0.5, '@media print': { display: 'none !important' } }} />
                       
-                      {/* 🔥 NEW: Dynamic Colors based on Dark/Light Mode */}
                       <Box className="prose-container" sx={{ 
                         fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
                         '& h1': { color: 'text.primary', fontSize: '2.5rem', fontWeight: 900, mt: 6, mb: 3, pb: 1, borderBottom: 1, borderColor: 'divider' }, 
@@ -321,10 +350,8 @@ function App() {
                 </Container>
               )}
 
-              {/* TAB 2: Graph */}
               {page === 'graph' && (
                 <Card className="no-print" sx={{ position: 'relative', height: '100%', bgcolor: isDarkMode ? 'rgba(0,0,0,0.4)' : 'background.paper', border: 1, borderColor: 'divider', borderRadius: isFullscreen ? 0 : 4, overflow: 'hidden' }}>
-                  {/* 🔥 NEW: Fullscreen Toggle for Graph */}
                   <Box sx={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
                     <Button 
                       variant="contained" 
@@ -345,7 +372,6 @@ function App() {
                 </Card>
               )}
 
-              {/* TAB 3: Chat Agent */}
               {page === 'chat' && (
                 <Container maxWidth={isFullscreen ? false : "md"} sx={{ height: '100%' }}>
                   <Card className="no-print" sx={{ 
@@ -356,7 +382,6 @@ function App() {
                       <Typography variant="h6" sx={{ color: 'text.primary', fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
                         <Terminal sx={{ mr: 1, color: 'primary.main' }} /> Ask AURA about {repoName}
                       </Typography>
-                      {/* 🔥 NEW: Fullscreen Toggle for Chat */}
                       <Tooltip title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
                         <IconButton onClick={() => setIsFullscreen(!isFullscreen)} color="primary">
                           {isFullscreen ? <FullscreenExit /> : <Fullscreen />}
@@ -369,7 +394,6 @@ function App() {
                         <Box key={index} sx={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
                           <Box sx={{ 
                             maxWidth: isFullscreen ? '60%' : '80%', p: 2, borderRadius: 2,
-                            // Dynamic chat bubble colors
                             bgcolor: msg.role === 'user' ? 'primary.main' : (isDarkMode ? '#1e293b' : '#f8fafc'), 
                             color: msg.role === 'user' ? '#ffffff' : 'text.primary',
                             border: msg.role !== 'user' && !isDarkMode ? '1px solid rgba(0,0,0,0.1)' : 'none',
@@ -380,10 +404,12 @@ function App() {
                           </Box>
                         </Box>
                       ))}
-                      {isChatting && (
+                      
+                      {/* Hide the spinning loader once the AI starts talking */}
+                      {isChatting && chatHistory[chatHistory.length - 1]?.text === '' && (
                         <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
                           <Box sx={{ p: 2, borderRadius: 2, bgcolor: isDarkMode ? '#1e293b' : '#f8fafc', color: 'text.secondary', border: !isDarkMode ? '1px solid rgba(0,0,0,0.1)' : 'none' }}>
-                            <CircularProgress size={16} color="inherit" sx={{ mr: 1 }} /> Scanning Codebase...
+                            <CircularProgress size={16} color="inherit" sx={{ mr: 1 }} /> Searching Codebase...
                           </Box>
                         </Box>
                       )}

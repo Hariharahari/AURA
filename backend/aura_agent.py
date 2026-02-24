@@ -7,7 +7,7 @@ import networkx as nx
 import concurrent.futures
 import time
 import asyncio
-import matplotlib.pyplot as plt # <-- NEW: For generating the architecture image
+import matplotlib.pyplot as plt 
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
 from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings, ChatNVIDIA
@@ -208,8 +208,10 @@ class ProductionAgent:
                 self.vector_db.add_documents(chunks[i : i + 20])
                 time.sleep(0.1)
                 
-            # 🔥 THE ONLY CHANGE: Saving the vector DB so the ChatAgent can use it
-            self.vector_db.save_local(f"faiss_db_{self.current_repo_name}")
+            # 🔥 UPDATED: Save DB inside the faiss_dbs folder
+            os.makedirs("faiss_dbs", exist_ok=True)
+            db_path = os.path.join("faiss_dbs", f"faiss_db_{self.current_repo_name}")
+            self.vector_db.save_local(db_path)
             
         print("✅ Knowledge Base Ready.")
 
@@ -223,7 +225,6 @@ class ProductionAgent:
         docs = self._safe_search(topic, k=20)
         context = "\n".join([d.page_content[:800] for d in docs])
         
-        # 🔥 UPGRADED PROMPT: Forces AI to explain exactly how the project connects to the topic
         text_prompt = (
             f"Act as a {role} and Lead System Architect. Write a COMPREHENSIVE, ACADEMIC-GRADE chapter titled '{title}'.\n\n"
             f"TOPIC: {topic}\n"
@@ -271,7 +272,6 @@ class ProductionAgent:
             f"**Focus:** Applied System Architecture & Technical Implementation\n\n"
         )
 
-        # YOUR EXACT UNTOUCHED CHAPTER GENERATION LOOP
         full_document += self.write_heavy_chapter(
             1, "Chapter 1: Executive Vision & Domain Theory",
             "Business logic, domain driven design, core value proposition",
@@ -321,30 +321,28 @@ class ProductionAgent:
         )
         time.sleep(3)
         
-        # 🔥 UPGRADED CHAPTER 8: Matplotlib Image + AI Analysis
         print("   🕸️  Visualizing Architecture Graph & Running AI Analysis...")
         
-        # 1. Grab top nodes for the graph image
         top_nodes = sorted(self.dep_engine.graph.degree, key=lambda x: x[1], reverse=True)[:35]
         nodes_list = [n[0] for n in top_nodes]
         subgraph = self.dep_engine.graph.subgraph(nodes_list)
         
-        # 2. Draw Graph Image using Matplotlib
         plt.figure(figsize=(10, 8))
-        plt.gca().set_facecolor('#ffffff') # White background looks best for PDF
+        plt.gca().set_facecolor('#ffffff') 
         pos = nx.spring_layout(subgraph, k=0.7, iterations=50)
         nx.draw_networkx_edges(subgraph, pos, edge_color='#94a3b8', alpha=0.8)
         nx.draw_networkx_nodes(subgraph, pos, node_color='#3b82f6', node_size=150)
         labels = {n: os.path.basename(n) for n in subgraph.nodes()}
         nx.draw_networkx_labels(subgraph, pos, labels, font_size=9, font_weight='bold')
         
-        # Save image locally
+        # 🔥 UPDATED: Save Image inside the images folder
+        os.makedirs("images", exist_ok=True)
         image_filename = f"architecture_{self.current_repo_name}.png"
+        image_path = os.path.join("images", image_filename)
         plt.axis('off')
-        plt.savefig(image_filename, format="PNG", bbox_inches='tight', dpi=300)
+        plt.savefig(image_path, format="PNG", bbox_inches='tight', dpi=300)
         plt.close()
 
-        # 3. AI Analysis of the Graph
         graph_explanation_prompt = (
             f"Act as a Principal System Architect. I have generated a Dependency Graph of the '{self.current_repo_name}' repository. "
             f"The most highly connected 'core' files in this architecture are: {', '.join([os.path.basename(n) for n in nodes_list[:15]])}.\n\n"
@@ -357,7 +355,6 @@ class ProductionAgent:
         except:
             graph_explanation = "Graph analysis could not be generated due to an AI error."
 
-        # 4. Generate the fallback Mermaid Block
         mermaid_graph = "graph TD\n"
         for u, v in self.dep_engine.graph.edges():
             if os.path.basename(u) in [os.path.basename(n) for n in nodes_list[:20]] and os.path.basename(v) in [os.path.basename(n) for n in nodes_list[:20]]:
@@ -365,7 +362,6 @@ class ProductionAgent:
 
         graph_block = "```mermaid\n" + mermaid_graph + "\n```"
 
-        # 5. Compile Chapter 8
         full_document += (
             "# Chapter 8: System Architecture Network\n\n"
             "This chapter visualizes the 'Nervous System' of the codebase, highlighting the most critical modules based on centrality analysis.\n\n"
@@ -375,7 +371,10 @@ class ProductionAgent:
             f"{graph_block}\n\n"
         )
 
-        output_filename = f"AURA_REPORT_{self.current_repo_name}.md"
+        # 🔥 UPDATED: Save Report inside the reports folder
+        os.makedirs("reports", exist_ok=True)
+        output_filename = os.path.join("reports", f"AURA_REPORT_{self.current_repo_name}.md")
+        
         with open(output_filename, "w", encoding="utf-8") as f:
             f.write(full_document)
             
