@@ -1,0 +1,20 @@
+# ---- Backend (Python) ----
+backend/.env
+backend/venv/
+backend/env/
+backend/__pycache__/
+backend/faiss_db_*/
+backend/cloned_repos/
+backend/prod_repo/
+backend/*.md
+backend/*.png
+backend/architecture_*.png
+
+# ---- Frontend (React) ----
+aura-frontend/node_modules/
+aura-frontend/dist/
+aura-frontend/build/
+aura-frontend/.env
+
+# ---- General OS Files ----
+.DS_Store

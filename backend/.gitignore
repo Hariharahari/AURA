@@ -1,0 +1,16 @@
+# Environments
+.env
+venv/
+env/
+__pycache__/
+
+# Frontend
+node_modules/
+dist/
+build/
+
+# AURA Specific Output
+cloned_repos/
+*.md
+*.png
+faiss_db_*/
