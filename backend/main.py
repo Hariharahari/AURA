@@ -2,13 +2,13 @@ import os
 import glob  
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse # 🔥 Added StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 import uvicorn
 
 # Import the Document Generator
 from aura_agent import ProductionAgent, DependencyEngine
-# Import the new Chatbot Agent
+# Import the Chatbot Agent
 from chat_agent import ChatAgent
 
 app = FastAPI(title="AURA Backend API")
@@ -42,14 +42,25 @@ def api_analyze_repo(request: AnalyzeRequest):
         agent.dep_engine = DependencyEngine("", NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
         
         agent.initialize_repo(request.url)
+        
+        # 1. Generate the heavy technical architecture report
         report_filename = agent.generate_aura_report()
         
+        # 🔥 2. NEW: Generate the non-technical business/marketing manual!
+        notes_filename = agent.generate_business_manual()
+        
         agent.dep_engine.close()
-        return {"status": "success", "repo_name": agent.current_repo_name, "report_file": report_filename}
+        
+        # Return both file names to the frontend
+        return {
+            "status": "success", 
+            "repo_name": agent.current_repo_name, 
+            "report_file": report_filename,
+            "notes_file": notes_filename
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# 🔥 FULLY UPGRADED: True Streaming Endpoint
 @app.post("/api/chat")
 def api_chat(request: ChatRequest):
     try:
@@ -67,6 +78,16 @@ def api_get_report(repo_name: str):
     filepath = os.path.join("reports", f"AURA_REPORT_{repo_name}.md")
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="Report not found. Generate it first.")
+    with open(filepath, "r", encoding="utf-8") as f:
+        content = f.read()
+    return {"repo_name": repo_name, "content": content}
+
+# 🔥 NEW ENDPOINT: Fetch the Business Release Notes for the UI
+@app.get("/api/notes/{repo_name}")
+def api_get_notes(repo_name: str):
+    filepath = os.path.join("reports", f"RELEASE_NOTES_{repo_name}.md")
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Release notes not found. Generate them first.")
     with open(filepath, "r", encoding="utf-8") as f:
         content = f.read()
     return {"repo_name": repo_name, "content": content}

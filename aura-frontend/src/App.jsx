@@ -25,14 +25,17 @@ import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import { 
   GitHub, Terminal, Timeline, Description, Share, Download, 
-  Chat as ChatIcon, Send, LightMode, DarkMode, Fullscreen, FullscreenExit 
+  Chat as ChatIcon, Send, LightMode, DarkMode, Fullscreen, FullscreenExit,
+  Campaign // 🔥 NEW: Megaphone Icon for Release Notes
 } from '@mui/icons-material';
 
 function App() {
   const [url, setUrl] = useState('');
   const [repoName, setRepoName] = useState('');
   const [loading, setLoading] = useState(false);
+  
   const [report, setReport] = useState('');
+  const [notes, setNotes] = useState(''); // 🔥 NEW: State to hold the Release Notes
   const [graph, setGraph] = useState({ nodes: [], links: [] });
   const [history, setHistory] = useState([]);
   const [page, setPage] = useState('report');
@@ -96,26 +99,35 @@ function App() {
   };
 
   const load = async (name) => {
+    // Fetch the technical report and the graph
     const r = await axios.get(`http://localhost:8000/api/reports/${name}`);
     const g = await axios.get(`http://localhost:8000/api/graph/${name}`);
+    
+    // 🔥 NEW: Fetch the Business Release Notes
+    let nData = "Release notes not found. Try analyzing the repository again.";
+    try {
+        const n = await axios.get(`http://localhost:8000/api/notes/${name}`);
+        nData = n.data.content;
+    } catch (e) {
+        console.warn("Could not load release notes for", name);
+    }
+
     if (!mounted.current) return;
     setReport(r.data.content);
+    setNotes(nData); // Save it to state
     setGraph(g.data);
     setChatHistory([{ role: 'bot', text: `Hello! I am AURA. You can ask me anything about the **${name}** codebase.` }]);
   };
 
-  // 🔥 FULLY UPGRADED: Handles the real-time stream from the backend
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
 
     const userMessage = chatInput;
-    
-    // Add user message AND an empty placeholder message for the bot
     setChatHistory(prev => [
       ...prev, 
       { role: 'user', text: userMessage },
-      { role: 'bot', text: '' } // This empty text will be filled chunk-by-chunk
+      { role: 'bot', text: '' } 
     ]);
     
     setChatInput('');
@@ -138,7 +150,6 @@ function App() {
       let done = false;
       let accumulatedAnswer = "";
 
-      // Loop through the chunks as they arrive from the backend
       while (!done) {
         const { value, done: readerDone } = await reader.read();
         done = readerDone;
@@ -147,7 +158,6 @@ function App() {
           const chunk = decoder.decode(value, { stream: true });
           accumulatedAnswer += chunk;
           
-          // Update the last message in the history (the bot's message) dynamically
           setChatHistory(prev => {
             const newHistory = [...prev];
             newHistory[newHistory.length - 1].text = accumulatedAnswer;
@@ -224,7 +234,7 @@ function App() {
                   onChange={(e) => { setRepoName(e.target.value); load(e.target.value); setPage('report'); setIsFullscreen(false); }}
                   sx={{ bgcolor: 'background.paper' }}
                 >
-                  <MenuItem value=""><em>Memory_Logs</em></MenuItem>
+                  <MenuItem value=""><em>New Repo</em></MenuItem>
                   {history.map((h) => (<MenuItem key={h} value={h}>{h.toUpperCase()}</MenuItem>))}
                 </Select>
               </FormControl>
@@ -280,8 +290,10 @@ function App() {
                 borderBottom: 1, borderColor: 'divider', px: 5,
                 '@media print': { display: 'none !important' } 
               }}>
-                <Tabs value={page} onChange={(e, newValue) => setPage(newValue)} sx={{ pt: 3 }}>
+                <Tabs value={page} onChange={(e, newValue) => setPage(newValue)} sx={{ pt: 3 }} variant="scrollable" scrollButtons="auto">
                   <Tab value="report" icon={<Description />} label="Project Document" iconPosition="start" />
+                  {/* 🔥 NEW TAB: Release Notes */}
+                  <Tab value="notes" icon={<Campaign />} label="Release Notes" iconPosition="start" />
                   <Tab value="graph" icon={<Share />} label="Dependency Graph" iconPosition="start" />
                   <Tab value="chat" icon={<ChatIcon />} label="Ask AURA" iconPosition="start" />
                 </Tabs>
@@ -293,6 +305,7 @@ function App() {
               '@media print': { display: 'block !important', overflow: 'visible !important', p: 0, m: 0 }
             }}>
               
+              {/* TAB 1: TECHNICAL REPORT */}
               {page === 'report' && (
                 <Container maxWidth={isFullscreen ? false : "lg"} sx={{ height: '100%', '@media print': { maxWidth: '100% !important', p: 0, m: 0 } }}>
                   <Card sx={{ 
@@ -334,14 +347,6 @@ function App() {
                         '& pre': { bgcolor: isDarkMode ? '#0f172a' : '#f8fafc', p: 3, borderRadius: 2, mb: 4, border: 1, borderColor: 'divider', overflowX: 'auto' },
                         '& code': { color: isDarkMode ? '#93c5fd' : '#1d4ed8', fontFamily: 'monospace' },
                         '& img': { maxWidth: '100%', borderRadius: '8px', mt: 2, mb: 4 },
-                        '@media print': {
-                          color: 'black !important', '& *': { color: 'black !important' },
-                          '& h1': { fontSize: '24pt', borderBottom: '2px solid black', mt: 0, pt: 2, mb: 2 },
-                          '& h2': { color: '#1a365d !important', fontSize: '18pt', mt: 4, mb: 2, pageBreakAfter: 'avoid' },
-                          '& h3': { color: '#2563eb !important', fontSize: '14pt', mt: 3, mb: 1, pageBreakAfter: 'avoid' },
-                          '& p': { fontSize: '11pt', lineHeight: 1.6, pageBreakInside: 'avoid' },
-                          '& li': { fontSize: '11pt', mb: 1 },
-                        }
                       }}>
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{report}</ReactMarkdown>
                       </Box>
@@ -350,6 +355,55 @@ function App() {
                 </Container>
               )}
 
+              {/* 🔥 NEW TAB VIEW: RELEASE NOTES */}
+              {page === 'notes' && (
+                <Container maxWidth={isFullscreen ? false : "md"} sx={{ height: '100%', '@media print': { maxWidth: '100% !important', p: 0, m: 0 } }}>
+                  <Card sx={{ 
+                    p: isFullscreen ? 6 : 8, 
+                    minHeight: isFullscreen ? '100vh' : 'auto',
+                    bgcolor: 'background.paper', 
+                    border: isFullscreen ? 'none' : '1px solid', borderColor: 'divider', 
+                    borderRadius: isFullscreen ? 0 : 10, boxShadow: isFullscreen ? 'none' : 3,
+                    '@media print': { p: 0, border: 'none !important', boxShadow: 'none !important', borderRadius: 0, bgcolor: 'white !important' }
+                  }}>
+                    <Box sx={{ 
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2,
+                      '@media print': { display: 'none !important' } 
+                    }}>
+                      <Typography variant="h5" sx={{ color: 'text.primary', fontWeight: 'bold' }}>Product Release Notes</Typography>
+                      <Box sx={{ display: 'flex', gap: 2 }}>
+                        <Button 
+                          variant="outlined" color="success"
+                          startIcon={isFullscreen ? <FullscreenExit /> : <Fullscreen />} 
+                          onClick={() => setIsFullscreen(!isFullscreen)} 
+                          sx={{ textTransform: 'none' }}
+                        >
+                          {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                        </Button>
+                        <Button variant="contained" color="success" startIcon={<Download />} onClick={downloadPDF} sx={{ textTransform: 'none' }}>Download PDF</Button>
+                      </Box>
+                    </Box>
+                    <Box sx={{ position: 'relative' }}>
+                      <Box sx={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 4, bgcolor: 'success.main', opacity: 0.5, '@media print': { display: 'none !important' } }} />
+                      
+                      {/* Slightly different styling for Marketing copy */}
+                      <Box className="prose-container" sx={{ 
+                        fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
+                        '& h1': { color: 'success.main', fontSize: '2.5rem', fontWeight: 900, mt: 6, mb: 3, pb: 1, borderBottom: 1, borderColor: 'divider' }, 
+                        '& h2': { color: isDarkMode ? '#4ade80' : '#16a34a', fontSize: '1.8rem', fontWeight: 700, mt: 5, mb: 2 }, 
+                        '& h3': { color: isDarkMode ? '#86efac' : '#22c55e', fontSize: '1.4rem', fontWeight: 600, mt: 4, mb: 1.5 }, 
+                        '& p': { color: 'text.secondary', fontSize: '1.15rem', lineHeight: 1.8, mb: 3 }, 
+                        '& strong': { color: 'text.primary', fontWeight: 700 }, 
+                        '& li': { color: 'text.secondary', fontSize: '1.15rem', lineHeight: 1.8, mb: 1 },
+                      }}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{notes}</ReactMarkdown>
+                      </Box>
+                    </Box>
+                  </Card>
+                </Container>
+              )}
+
+              {/* TAB 3: DEPENDENCY GRAPH */}
               {page === 'graph' && (
                 <Card className="no-print" sx={{ position: 'relative', height: '100%', bgcolor: isDarkMode ? 'rgba(0,0,0,0.4)' : 'background.paper', border: 1, borderColor: 'divider', borderRadius: isFullscreen ? 0 : 4, overflow: 'hidden' }}>
                   <Box sx={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
@@ -372,6 +426,7 @@ function App() {
                 </Card>
               )}
 
+              {/* TAB 4: CHAT AGENT */}
               {page === 'chat' && (
                 <Container maxWidth={isFullscreen ? false : "md"} sx={{ height: '100%' }}>
                   <Card className="no-print" sx={{ 
@@ -405,7 +460,6 @@ function App() {
                         </Box>
                       ))}
                       
-                      {/* Hide the spinning loader once the AI starts talking */}
                       {isChatting && chatHistory[chatHistory.length - 1]?.text === '' && (
                         <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
                           <Box sx={{ p: 2, borderRadius: 2, bgcolor: isDarkMode ? '#1e293b' : '#f8fafc', color: 'text.secondary', border: !isDarkMode ? '1px solid rgba(0,0,0,0.1)' : 'none' }}>

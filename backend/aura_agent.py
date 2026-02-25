@@ -380,3 +380,42 @@ class ProductionAgent:
             
         print(f"\n✨ SUCCESS: '{output_filename}' generated.")
         return output_filename
+    def generate_business_manual(self):
+        print("\n   📢 Generating Customer-Facing Release Notes & Manual...")
+        
+        # 1. Search for broad, feature-level concepts in the codebase
+        docs = self._safe_search("routes, endpoints, main features, core business logic, user interface, API", k=25)
+        context = "\n".join([d.page_content[:600] for d in docs])
+        
+        # 2. The Product Marketer Prompt
+        marketing_prompt = (
+            f"Act as the Head of Product Marketing. I am giving you the raw codebase context for a software project called '{self.current_repo_name}'.\n\n"
+            f"CONTEXT:\n{context}\n\n"
+            "CRITICAL RULES:\n"
+            "1. **NO TECHNICAL JARGON:** You are speaking to end-users and non-technical stakeholders. DO NOT mention files, classes, Python, functions, databases, or code architecture.\n"
+            "2. **FOCUS ON VALUE:** Translate what the code does into what the USER can do. (e.g., instead of 'auth.py manages JWT tokens', write 'Users can securely log in and manage their sessions').\n"
+            "3. **FORMAT:** Create a beautiful, highly readable Markdown document with the following sections:\n"
+            "   - **🚀 Product Overview:** A high-level pitch of what this software actually is.\n"
+            "   - **✨ Key Features & Capabilities:** Bullet points of the main things a user can do.\n"
+            "   - **📖 Quick Start User Guide:** A theoretical step-by-step guide on how a user interacts with the platform.\n"
+            "   - **🎉 Release Notes:** Pretend this is version 1.0. Write an exciting launch announcement.\n\n"
+            "Write the document now."
+        )
+        
+        try:
+            # 3. Generate the content using the LLM
+            content = self.llm.invoke(marketing_prompt).content
+            
+            # 4. Save it to the clean reports folder
+            os.makedirs("reports", exist_ok=True)
+            output_filename = os.path.join("reports", f"RELEASE_NOTES_{self.current_repo_name}.md")
+            
+            with open(output_filename, "w", encoding="utf-8") as f:
+                f.write(content)
+                
+            print(f"   ✅ SUCCESS: '{output_filename}' generated.")
+            return output_filename
+            
+        except Exception as e:
+            print(f"   ⚠️ Error generating business manual: {e}")
+            return None
