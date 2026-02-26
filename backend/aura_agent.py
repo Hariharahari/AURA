@@ -7,6 +7,7 @@ import networkx as nx
 import concurrent.futures
 import time
 import asyncio
+import json
 import matplotlib.pyplot as plt 
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
@@ -208,7 +209,6 @@ class ProductionAgent:
                 self.vector_db.add_documents(chunks[i : i + 20])
                 time.sleep(0.1)
                 
-            # 🔥 UPDATED: Save DB inside the faiss_dbs folder
             os.makedirs("faiss_dbs", exist_ok=True)
             db_path = os.path.join("faiss_dbs", f"faiss_db_{self.current_repo_name}")
             self.vector_db.save_local(db_path)
@@ -232,7 +232,7 @@ class ProductionAgent:
             "CRITICAL REQUIREMENTS:\n"
             "1. **NO GENERIC DEFINITIONS:** DO NOT write dictionary definitions of what a topic is. Assume the reader already knows the theory.\n"
             "2. **REPOSITORY CONNECTION (CRITICAL):** You MUST explain exactly HOW this specific project implements the topic. Every subheading must explicitly analyze the actual codebase logic, naming specific classes, functions, and architecture decisions found in the Context.\n"
-            f"3. **Dynamic Numbered Subheadings:** Use numbered H2 (##) subheadings (e.g., ## {chapter_num}.1, ## {chapter_num}.2). The titles MUST be specific to how the codebase operates (e.g., '## {chapter_num}.2 Core File Parsing Logic' instead of '## {chapter_num}.2 Theory').\n"
+            f"3. **Dynamic Numbered Subheadings:** Use numbered H2 (##) subheadings (e.g., ## {chapter_num}.1, ## {chapter_num}.2). The titles MUST be specific to how the codebase operates.\n"
             "4. **Anti-Hallucination:** If the context lacks the specific topic, state clearly why this repository's architecture doesn't need it. Do not invent fake code.\n"
             "5. **Length:** Write at least 1500 words. Be extremely verbose and highly analytical.\n\n"
             "Start the chapter immediately."
@@ -263,8 +263,46 @@ class ProductionAgent:
             return f"# {title}\n(Content generation failed)\n\n"
 
     def generate_aura_report(self):
-        print("\n📚 GENERATING AURA REPORT (THEORETICAL EDITION)...")
+        print("\n📚 GENERATING AURA REPORT (DYNAMIC EDITION)...")
         
+        # 1. Gather a high-level summary to inform the LLM about the project shape
+        top_nodes = sorted(self.dep_engine.graph.degree, key=lambda x: x[1], reverse=True)[:40]
+        core_files = [os.path.basename(n[0]) for n in top_nodes]
+        docs = self._safe_search("architecture overview main core modules entry point", k=15)
+        context = "\n".join([d.page_content[:400] for d in docs])
+
+        print("   🧠 Analyzing FAISS DB and Graph to dynamically outline chapters...")
+
+        # 2. Instruct the LLM to write a custom JSON array of chapters based on the codebase
+        # 🔥 PROMPT TUNED: Banned generic titles and forced domain-specific creativity
+        planning_prompt = (
+            f"Act as a Principal Software Architect. You need to outline an Architectural Manual for the '{self.current_repo_name}' repository.\n"
+            f"Critical files heavily connected in this project: {', '.join(core_files)}\n"
+            f"Codebase Context Snippets:\n{context}\n\n"
+            "Based strictly on the file names and context provided, generate a dynamic table of contents (between 5 to 7 chapters) tailored EXACTLY to this codebase's specific domain.\n\n"
+            "CRITICAL RULES FOR CHAPTER TITLES:\n"
+            "1. NO GENERIC TITLES: You are STRICTLY FORBIDDEN from using generic terms like 'Core Functionality', 'Input/Output', 'State Management', 'Testing Framework', or 'Command-Line Interface'.\n"
+            "2. HYPER-SPECIFICITY: You MUST invent highly creative, deeply technical chapter titles that reflect the actual domain. (e.g., If it is a UI framework, write 'Terminal Rendering & Widget Pipeline'. If it is a database, write 'B-Tree Storage & Disk Allocation').\n"
+            "3. BIND TO CONTEXT: The 'topic' field must include specific class or file names you found in the context.\n\n"
+            "Return ONLY a valid JSON array of objects. No markdown formatting, no conversation, no explanation.\n"
+            "Format: [{\"chapter_num\": 1, \"title\": \"Chapter 1: [Highly Specific Name]\", \"topic\": \"[Specific technical keywords to search the FAISS DB for this chapter]\", \"role\": \"[e.g., Lead Engineer]\"}]"
+        )
+        
+        try:
+            plan_response = self.llm.invoke(planning_prompt).content
+            plan_response = plan_response.replace("```json", "").replace("```", "").strip()
+            chapters_plan = json.loads(plan_response)
+            print(f"   ✅ Dynamic chapters generated: {len(chapters_plan)} chapters specifically tailored to {self.current_repo_name}.")
+        except Exception as e:
+            print(f"   ⚠️ Failed to dynamically generate chapters. Using enterprise fallback structure. Error: {e}")
+            # Fallback in case JSON formatting fails
+            chapters_plan = [
+                {"chapter_num": 1, "title": "Chapter 1: Core System Implementation", "topic": "client, core modules, data models, status, main execution flow", "role": "Chief Technology Officer"},
+                {"chapter_num": 2, "title": "Chapter 2: Subsystem Interaction", "topic": "parsing, processing, handlers", "role": "Backend Lead"},
+                {"chapter_num": 3, "title": "Chapter 3: Memory & State Management", "topic": "state persistence, cache, data storage", "role": "Product Architect"},
+                {"chapter_num": 4, "title": "Chapter 4: Extensibility Infrastructure", "topic": "plugins, extensions, middleware", "role": "Principal Software Engineer"}
+            ]
+
         full_document = (
             f"# AURA: {self.current_repo_name.upper()} ARCHITECTURAL AUDIT\n\n"
             f"**Target Repository:** {self.current_repo_name}\n"
@@ -272,55 +310,17 @@ class ProductionAgent:
             f"**Focus:** Applied System Architecture & Technical Implementation\n\n"
         )
 
-        full_document += self.write_heavy_chapter(
-            1, "Chapter 1: Executive Vision & Domain Theory",
-            "Business logic, domain driven design, core value proposition",
-            "Chief Technology Officer"
-        )
-        time.sleep(3)
+        # 3. Iterate through the dynamically chosen chapters
+        for chap in chapters_plan:
+            full_document += self.write_heavy_chapter(
+                chap.get("chapter_num", 0),
+                chap.get("title", "Chapter"),
+                chap.get("topic", "codebase architecture"),
+                chap.get("role", "Architect")
+            )
+            time.sleep(3)
         
-        full_document += self.write_heavy_chapter(
-            2, "Chapter 2: User Experience & Interaction Flows",
-            "Authentication sequences, user session management, frontend-backend contract",
-            "Product Architect"
-        )
-        time.sleep(3)
-        
-        full_document += self.write_heavy_chapter(
-            3, "Chapter 3: System Architecture & Design Patterns",
-            "Dependency injection, factory patterns, singleton usage, service layer isolation",
-            "Principal Software Engineer"
-        )
-        time.sleep(3)
-
-        full_document += self.write_heavy_chapter(
-            4, "Chapter 4: Data Persistence & Schema Theory",
-            "ORM mapping strategies, database normalization, indexing strategy, transaction boundaries",
-            "Senior Database Administrator"
-        )
-        time.sleep(3)
-
-        full_document += self.write_heavy_chapter(
-            5, "Chapter 5: API Interface Strategy",
-            "RESTful constraints, serialization logic, content negotiation, endpoint security",
-            "Backend Lead"
-        )
-        time.sleep(3)
-        
-        full_document += self.write_heavy_chapter(
-            6, "Chapter 6: System Resilience & DevOps",
-            "Error handling, logging, caching strategy, fault tolerance",
-            "Site Reliability Engineer"
-        )
-        time.sleep(3)
-
-        full_document += self.write_heavy_chapter(
-            7, "Chapter 7: Technical Debt & Refactoring Strategy",
-            "Code complexity, cyclical dependencies, refactoring opportunities",
-            "Senior DevOps Engineer"
-        )
-        time.sleep(3)
-        
+        # 4. Append the final unchanging NetworkX Visual Chapter
         print("   🕸️  Visualizing Architecture Graph & Running AI Analysis...")
         
         top_nodes = sorted(self.dep_engine.graph.degree, key=lambda x: x[1], reverse=True)[:35]
@@ -335,7 +335,6 @@ class ProductionAgent:
         labels = {n: os.path.basename(n) for n in subgraph.nodes()}
         nx.draw_networkx_labels(subgraph, pos, labels, font_size=9, font_weight='bold')
         
-        # 🔥 UPDATED: Save Image inside the images folder
         os.makedirs("images", exist_ok=True)
         image_filename = f"architecture_{self.current_repo_name}.png"
         image_path = os.path.join("images", image_filename)
@@ -363,15 +362,14 @@ class ProductionAgent:
         graph_block = "```mermaid\n" + mermaid_graph + "\n```"
 
         full_document += (
-            "# Chapter 8: System Architecture Network\n\n"
+            "# System Architecture Network\n\n"
             "This chapter visualizes the 'Nervous System' of the codebase, highlighting the most critical modules based on centrality analysis.\n\n"
             f"![System Architecture](http://localhost:8000/api/images/{image_filename})\n\n"
             f"{graph_explanation}\n\n"
-            "### 8.X Critical Path Visualization (Mermaid)\n\n"
+            "### Critical Path Visualization (Mermaid)\n\n"
             f"{graph_block}\n\n"
         )
 
-        # 🔥 UPDATED: Save Report inside the reports folder
         os.makedirs("reports", exist_ok=True)
         output_filename = os.path.join("reports", f"AURA_REPORT_{self.current_repo_name}.md")
         
@@ -380,14 +378,13 @@ class ProductionAgent:
             
         print(f"\n✨ SUCCESS: '{output_filename}' generated.")
         return output_filename
+
     def generate_business_manual(self):
         print("\n   📢 Generating Customer-Facing Release Notes & Manual...")
         
-        # 1. Search for broad, feature-level concepts in the codebase
         docs = self._safe_search("routes, endpoints, main features, core business logic, user interface, API", k=25)
         context = "\n".join([d.page_content[:600] for d in docs])
         
-        # 2. The Product Marketer Prompt
         marketing_prompt = (
             f"Act as the Head of Product Marketing. I am giving you the raw codebase context for a software project called '{self.current_repo_name}'.\n\n"
             f"CONTEXT:\n{context}\n\n"
@@ -403,10 +400,8 @@ class ProductionAgent:
         )
         
         try:
-            # 3. Generate the content using the LLM
             content = self.llm.invoke(marketing_prompt).content
             
-            # 4. Save it to the clean reports folder
             os.makedirs("reports", exist_ok=True)
             output_filename = os.path.join("reports", f"RELEASE_NOTES_{self.current_repo_name}.md")
             

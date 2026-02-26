@@ -26,7 +26,7 @@ import Tooltip from '@mui/material/Tooltip';
 import { 
   GitHub, Terminal, Timeline, Description, Share, Download, 
   Chat as ChatIcon, Send, LightMode, DarkMode, Fullscreen, FullscreenExit,
-  Campaign // 🔥 NEW: Megaphone Icon for Release Notes
+  Campaign, AccountTree // 🔥 NEW: Added AccountTree icon for the graph toggle button
 } from '@mui/icons-material';
 
 function App() {
@@ -35,24 +35,32 @@ function App() {
   const [loading, setLoading] = useState(false);
   
   const [report, setReport] = useState('');
-  const [notes, setNotes] = useState(''); // 🔥 NEW: State to hold the Release Notes
+  const [notes, setNotes] = useState('');
   const [graph, setGraph] = useState({ nodes: [], links: [] });
   const [history, setHistory] = useState([]);
   const [page, setPage] = useState('report');
   
-  // Chatbot states
   const [chatHistory, setChatHistory] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [isChatting, setIsChatting] = useState(false);
+  
+  const [highlightNodes, setHighlightNodes] = useState(new Set());
+  
+  // 🔥 NEW: State to track if the graph panel is visible (hidden by default)
+  const [showGraphPanel, setShowGraphPanel] = useState(false);
 
-  // UI Toggle States
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const mounted = useRef(true);
   const chatEndRef = useRef(null);
+  
+  const fgRef = useRef(null);
 
   const theme = useMemo(() => createTheme({
+    typography: {
+      fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
+    },
     palette: {
       mode: isDarkMode ? 'dark' : 'light',
       primary: { main: '#1976d2' },
@@ -99,11 +107,9 @@ function App() {
   };
 
   const load = async (name) => {
-    // Fetch the technical report and the graph
     const r = await axios.get(`http://localhost:8000/api/reports/${name}`);
     const g = await axios.get(`http://localhost:8000/api/graph/${name}`);
     
-    // 🔥 NEW: Fetch the Business Release Notes
     let nData = "Release notes not found. Try analyzing the repository again.";
     try {
         const n = await axios.get(`http://localhost:8000/api/notes/${name}`);
@@ -114,8 +120,11 @@ function App() {
 
     if (!mounted.current) return;
     setReport(r.data.content);
-    setNotes(nData); // Save it to state
+    setNotes(nData);
     setGraph(g.data);
+    
+    setHighlightNodes(new Set());
+    
     setChatHistory([{ role: 'bot', text: `Hello! I am AURA. You can ask me anything about the **${name}** codebase.` }]);
   };
 
@@ -132,6 +141,8 @@ function App() {
     
     setChatInput('');
     setIsChatting(true);
+    
+    setHighlightNodes(new Set());
 
     try {
       const response = await fetch('http://localhost:8000/api/chat', {
@@ -149,6 +160,8 @@ function App() {
       const decoder = new TextDecoder("utf-8");
       let done = false;
       let accumulatedAnswer = "";
+      
+      let graphTriggered = false;
 
       while (!done) {
         const { value, done: readerDone } = await reader.read();
@@ -157,6 +170,24 @@ function App() {
         if (value) {
           const chunk = decoder.decode(value, { stream: true });
           accumulatedAnswer += chunk;
+          
+          const graphMatch = accumulatedAnswer.match(/<ui_graph>([\s\S]*?)<\/ui_graph>/);
+          if (graphMatch && !graphTriggered) {
+            const files = graphMatch[1].split(',').map(f => f.trim());
+            setHighlightNodes(new Set(files));
+            
+            // 🔥 SMART FEATURE: If AI targets files, automatically open the graph panel!
+            setShowGraphPanel(true);
+            
+            // Short delay to allow the DOM to render the canvas before hitting the physics engine
+            setTimeout(() => {
+                if (fgRef.current) {
+                    fgRef.current.d3ReheatSimulation();
+                }
+            }, 150);
+            
+            graphTriggered = true;
+          }
           
           setChatHistory(prev => {
             const newHistory = [...prev];
@@ -187,16 +218,29 @@ function App() {
             display: 'block !important', height: 'auto !important', minHeight: 'auto !important',
             overflow: 'visible !important', position: 'static !important', margin: '0 !important',
             padding: '0 !important', backgroundColor: 'white !important',
+            color: 'black !important',
+            fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif !important',
           },
+          '.prose-container p, .prose-container li, .prose-container strong, .prose-container span': {
+            color: 'black !important'
+          },
+          '.prose-container h1': { color: 'black !important', borderBottomColor: '#ccc !important' },
+          '.prose-container h2': { color: '#1d4ed8 !important' },
+          '.prose-container h3': { color: '#2563eb !important' },
+          '.notes-container h1': { color: 'black !important', borderBottomColor: '#ccc !important' },
+          '.notes-container h2': { color: '#16a34a !important' },
+          '.notes-container h3': { color: '#22c55e !important' },
           'pre': {
             whiteSpace: 'pre-wrap !important', wordWrap: 'break-word !important',
             wordBreak: 'break-word !important', pageBreakInside: 'auto !important',
             backgroundColor: '#f8fafc !important', border: '1px solid #e2e8f0 !important',
             color: 'black !important', padding: '12px !important',
+            fontFamily: 'Consolas, "Courier New", monospace !important',
           },
           'code': {
             whiteSpace: 'pre-wrap !important', wordWrap: 'break-word !important',
-            color: 'black !important', fontFamily: 'monospace !important', fontSize: '10pt !important',
+            color: '#1d4ed8 !important', fontSize: '10pt !important',
+            fontFamily: 'Consolas, "Courier New", monospace !important',
           },
           'h1': { pageBreakBefore: 'always !important', marginTop: '20px !important' },
           'h1:first-of-type': { pageBreakBefore: 'avoid !important', marginTop: '0 !important' },
@@ -292,7 +336,6 @@ function App() {
               }}>
                 <Tabs value={page} onChange={(e, newValue) => setPage(newValue)} sx={{ pt: 3 }} variant="scrollable" scrollButtons="auto">
                   <Tab value="report" icon={<Description />} label="Project Document" iconPosition="start" />
-                  {/* 🔥 NEW TAB: Release Notes */}
                   <Tab value="notes" icon={<Campaign />} label="Release Notes" iconPosition="start" />
                   <Tab value="graph" icon={<Share />} label="Dependency Graph" iconPosition="start" />
                   <Tab value="chat" icon={<ChatIcon />} label="Ask AURA" iconPosition="start" />
@@ -344,8 +387,8 @@ function App() {
                         '& p': { color: 'text.secondary', fontSize: '1.15rem', lineHeight: 1.8, mb: 3 }, 
                         '& strong': { color: 'text.primary', fontWeight: 700 }, 
                         '& li': { color: 'text.secondary', fontSize: '1.15rem', lineHeight: 1.8, mb: 1 },
-                        '& pre': { bgcolor: isDarkMode ? '#0f172a' : '#f8fafc', p: 3, borderRadius: 2, mb: 4, border: 1, borderColor: 'divider', overflowX: 'auto' },
-                        '& code': { color: isDarkMode ? '#93c5fd' : '#1d4ed8', fontFamily: 'monospace' },
+                        '& pre': { bgcolor: isDarkMode ? '#0f172a' : '#f8fafc', p: 3, borderRadius: 2, mb: 4, border: 1, borderColor: 'divider', overflowX: 'auto', fontFamily: 'Consolas, "Courier New", monospace' },
+                        '& code': { color: isDarkMode ? '#93c5fd' : '#1d4ed8', fontFamily: 'Consolas, "Courier New", monospace' },
                         '& img': { maxWidth: '100%', borderRadius: '8px', mt: 2, mb: 4 },
                       }}>
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{report}</ReactMarkdown>
@@ -355,7 +398,7 @@ function App() {
                 </Container>
               )}
 
-              {/* 🔥 NEW TAB VIEW: RELEASE NOTES */}
+              {/* TAB 2: RELEASE NOTES */}
               {page === 'notes' && (
                 <Container maxWidth={isFullscreen ? false : "md"} sx={{ height: '100%', '@media print': { maxWidth: '100% !important', p: 0, m: 0 } }}>
                   <Card sx={{ 
@@ -386,8 +429,7 @@ function App() {
                     <Box sx={{ position: 'relative' }}>
                       <Box sx={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 4, bgcolor: 'success.main', opacity: 0.5, '@media print': { display: 'none !important' } }} />
                       
-                      {/* Slightly different styling for Marketing copy */}
-                      <Box className="prose-container" sx={{ 
+                      <Box className="prose-container notes-container" sx={{ 
                         fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
                         '& h1': { color: 'success.main', fontSize: '2.5rem', fontWeight: 900, mt: 6, mb: 3, pb: 1, borderBottom: 1, borderColor: 'divider' }, 
                         '& h2': { color: isDarkMode ? '#4ade80' : '#16a34a', fontSize: '1.8rem', fontWeight: 700, mt: 5, mb: 2 }, 
@@ -426,39 +468,50 @@ function App() {
                 </Card>
               )}
 
-              {/* TAB 4: CHAT AGENT */}
+              {/* TAB 4: INTERACTIVE "MINORITY REPORT" SPLIT-SCREEN CHAT */}
               {page === 'chat' && (
-                <Container maxWidth={isFullscreen ? false : "md"} sx={{ height: '100%' }}>
-                  <Card className="no-print" sx={{ 
-                    height: '100%', display: 'flex', flexDirection: 'column', 
-                    bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: isFullscreen ? 0 : 4, overflow: 'hidden' 
-                  }}>
+                <Box sx={{ display: 'flex', flexDirection: 'row', gap: 3, height: '100%' }}>
+                  
+                  {/* LEFT SIDE: Chat Interface */}
+                  <Card className="no-print" sx={{ flex: 1, display: 'flex', flexDirection: 'column', bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: isFullscreen ? 0 : 4, overflow: 'hidden' }}>
                     <Box sx={{ p: 3, borderBottom: 1, borderColor: 'divider', bgcolor: isDarkMode ? '#0f172a' : '#f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Typography variant="h6" sx={{ color: 'text.primary', fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
-                        <Terminal sx={{ mr: 1, color: 'primary.main' }} /> Ask AURA about {repoName}
+                        <Terminal sx={{ mr: 1, color: 'primary.main' }} /> Ask AURA
                       </Typography>
-                      <Tooltip title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
-                        <IconButton onClick={() => setIsFullscreen(!isFullscreen)} color="primary">
-                          {isFullscreen ? <FullscreenExit /> : <Fullscreen />}
-                        </IconButton>
-                      </Tooltip>
+                      
+                      {/* 🔥 NEW: Controls container for Graph Toggle and Fullscreen */}
+                      <Box>
+                        <Tooltip title={showGraphPanel ? "Hide Network Graph" : "Show Network Graph"}>
+                          <IconButton onClick={() => setShowGraphPanel(!showGraphPanel)} color="secondary" sx={{ mr: 1 }}>
+                            <AccountTree />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
+                          <IconButton onClick={() => setIsFullscreen(!isFullscreen)} color="primary">
+                            {isFullscreen ? <FullscreenExit /> : <Fullscreen />}
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
                     </Box>
 
                     <Box sx={{ flex: 1, p: 3, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      {chatHistory.map((msg, index) => (
-                        <Box key={index} sx={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                          <Box sx={{ 
-                            maxWidth: isFullscreen ? '60%' : '80%', p: 2, borderRadius: 2,
-                            bgcolor: msg.role === 'user' ? 'primary.main' : (isDarkMode ? '#1e293b' : '#f8fafc'), 
-                            color: msg.role === 'user' ? '#ffffff' : 'text.primary',
-                            border: msg.role !== 'user' && !isDarkMode ? '1px solid rgba(0,0,0,0.1)' : 'none',
-                            '& pre': { bgcolor: isDarkMode ? '#0f172a' : '#e2e8f0', p: 2, borderRadius: 2, overflowX: 'auto', mt: 1 },
-                            '& code': { fontFamily: 'monospace', color: msg.role === 'user' ? '#ffffff' : (isDarkMode ? '#93c5fd' : '#1d4ed8') }
-                          }}>
-                            {msg.role === 'user' ? (<Typography>{msg.text}</Typography>) : (<ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>)}
+                      {chatHistory.map((msg, index) => {
+                        const displayText = msg.text.replace(/<ui_graph>[\s\S]*?<\/ui_graph>/g, '').trim();
+                        return (
+                          <Box key={index} sx={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                            <Box sx={{ 
+                              maxWidth: '85%', p: 2, borderRadius: 2,
+                              bgcolor: msg.role === 'user' ? 'primary.main' : (isDarkMode ? '#1e293b' : '#f8fafc'), 
+                              color: msg.role === 'user' ? '#ffffff' : 'text.primary',
+                              border: msg.role !== 'user' && !isDarkMode ? '1px solid rgba(0,0,0,0.1)' : 'none',
+                              '& pre': { bgcolor: isDarkMode ? '#0f172a' : '#e2e8f0', p: 2, borderRadius: 2, overflowX: 'auto', mt: 1, fontFamily: 'Consolas, "Courier New", monospace' },
+                              '& code': { fontFamily: 'Consolas, "Courier New", monospace', color: msg.role === 'user' ? '#ffffff' : (isDarkMode ? '#93c5fd' : '#1d4ed8') }
+                            }}>
+                              {msg.role === 'user' ? (<Typography>{displayText}</Typography>) : (<ReactMarkdown remarkPlugins={[remarkGfm]}>{displayText}</ReactMarkdown>)}
+                            </Box>
                           </Box>
-                        </Box>
-                      ))}
+                        );
+                      })}
                       
                       {isChatting && chatHistory[chatHistory.length - 1]?.text === '' && (
                         <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
@@ -485,7 +538,45 @@ function App() {
                       </form>
                     </Box>
                   </Card>
-                </Container>
+
+                  {/* RIGHT SIDE: Interactive Graph View (Conditionally Rendered) */}
+                  {showGraphPanel && (
+                    <Card className="no-print" sx={{ flex: 1, position: 'relative', bgcolor: isDarkMode ? 'rgba(0,0,0,0.4)' : 'background.paper', border: 1, borderColor: 'divider', borderRadius: isFullscreen ? 0 : 4, overflow: 'hidden' }}>
+                      <Box sx={{ position: 'absolute', top: 16, left: 16, zIndex: 10, bgcolor: 'background.paper', px: 2, py: 1, borderRadius: 2, border: 1, borderColor: 'divider' }}>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold', color: highlightNodes.size > 0 ? 'error.main' : 'text.secondary' }}>
+                          {highlightNodes.size > 0 ? `Target Locked: ${highlightNodes.size} Modules` : 'Awaiting Context...'}
+                        </Typography>
+                      </Box>
+                      <ForceGraph2D 
+                        ref={fgRef}
+                        key={`interactive-${repoName}-${isDarkMode}`} 
+                        graphData={graph} 
+                        backgroundColor="rgba(0,0,0,0)" 
+                        nodeRelSize={8}
+                        nodeColor={(node) => {
+                          if (highlightNodes.size === 0) return '#3b82f6'; 
+                          
+                          const isHigh = Array.from(highlightNodes).some(f => 
+                             (node.id && typeof node.id === 'string' && node.id.includes(f)) || 
+                             (node.name && typeof node.name === 'string' && node.name.includes(f))
+                          );
+                          return isHigh ? '#ef4444' : (isDarkMode ? '#334155' : '#cbd5e1'); 
+                        }}
+                        linkColor={(link) => {
+                          if (highlightNodes.size === 0) return isDarkMode ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.2)";
+                          
+                          const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+                          const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+                          
+                          const sHigh = sourceId && typeof sourceId === 'string' && Array.from(highlightNodes).some(f => sourceId.includes(f));
+                          const tHigh = targetId && typeof targetId === 'string' && Array.from(highlightNodes).some(f => targetId.includes(f));
+                          
+                          return sHigh || tHigh ? "rgba(239, 68, 68, 0.6)" : "rgba(0,0,0,0.05)";
+                        }}
+                      />
+                    </Card>
+                  )}
+                </Box>
               )}
 
             </Box>
