@@ -147,7 +147,8 @@ class DependencyEngine:
 class ProductionAgent:
     def __init__(self):
         self.embeddings = NVIDIAEmbeddings(model="nvidia/nv-embed-v1", model_type="passage")
-        self.llm = ChatNVIDIA(model="meta/llama-3.1-70b-instruct", temperature=0.1)
+        # 🔥 SPEED FIX: Changed to 8b model for lightning-fast generation
+        self.llm = ChatNVIDIA(model="meta/llama-3.1-8b-instruct", temperature=0.1)
         self.vector_db = None
         self.dep_engine = None
         self.current_repo_name = "UNKNOWN"
@@ -234,7 +235,8 @@ class ProductionAgent:
             "2. **REPOSITORY CONNECTION (CRITICAL):** You MUST explain exactly HOW this specific project implements the topic. Every subheading must explicitly analyze the actual codebase logic, naming specific classes, functions, and architecture decisions found in the Context.\n"
             f"3. **Dynamic Numbered Subheadings:** Use numbered H2 (##) subheadings (e.g., ## {chapter_num}.1, ## {chapter_num}.2). The titles MUST be specific to how the codebase operates.\n"
             "4. **Anti-Hallucination:** If the context lacks the specific topic, state clearly why this repository's architecture doesn't need it. Do not invent fake code.\n"
-            "5. **Length:** Write at least 1500 words. Be extremely verbose and highly analytical.\n\n"
+            # 🔥 SPEED FIX: Shortened the length demand so it doesn't trigger the 5-minute timeout
+            "5. **Length:** Write around 400 to 500 words. Be highly analytical but concise to ensure lightning-fast generation.\n\n"
             "Start the chapter immediately."
         )
         
@@ -274,12 +276,12 @@ class ProductionAgent:
         print("   🧠 Analyzing FAISS DB and Graph to dynamically outline chapters...")
 
         # 2. Instruct the LLM to write a custom JSON array of chapters based on the codebase
-        # 🔥 PROMPT TUNED: Banned generic titles and forced domain-specific creativity
         planning_prompt = (
             f"Act as a Principal Software Architect. You need to outline an Architectural Manual for the '{self.current_repo_name}' repository.\n"
             f"Critical files heavily connected in this project: {', '.join(core_files)}\n"
             f"Codebase Context Snippets:\n{context}\n\n"
-            "Based strictly on the file names and context provided, generate a dynamic table of contents (between 5 to 7 chapters) tailored EXACTLY to this codebase's specific domain.\n\n"
+            # 🔥 SPEED FIX: Forced it to exactly 7 chapters
+            "Based strictly on the file names and context provided, generate a dynamic table of contents (exactly 7 chapters) tailored EXACTLY to this codebase's specific domain.\n\n"
             "CRITICAL RULES FOR CHAPTER TITLES:\n"
             "1. NO GENERIC TITLES: You are STRICTLY FORBIDDEN from using generic terms like 'Core Functionality', 'Input/Output', 'State Management', 'Testing Framework', or 'Command-Line Interface'.\n"
             "2. HYPER-SPECIFICITY: You MUST invent highly creative, deeply technical chapter titles that reflect the actual domain. (e.g., If it is a UI framework, write 'Terminal Rendering & Widget Pipeline'. If it is a database, write 'B-Tree Storage & Disk Allocation').\n"
@@ -300,7 +302,10 @@ class ProductionAgent:
                 {"chapter_num": 1, "title": "Chapter 1: Core System Implementation", "topic": "client, core modules, data models, status, main execution flow", "role": "Chief Technology Officer"},
                 {"chapter_num": 2, "title": "Chapter 2: Subsystem Interaction", "topic": "parsing, processing, handlers", "role": "Backend Lead"},
                 {"chapter_num": 3, "title": "Chapter 3: Memory & State Management", "topic": "state persistence, cache, data storage", "role": "Product Architect"},
-                {"chapter_num": 4, "title": "Chapter 4: Extensibility Infrastructure", "topic": "plugins, extensions, middleware", "role": "Principal Software Engineer"}
+                {"chapter_num": 4, "title": "Chapter 4: Extensibility Infrastructure", "topic": "plugins, extensions, middleware", "role": "Principal Software Engineer"},
+                {"chapter_num": 5, "title": "Chapter 5: Network Protocols & IPC", "topic": "sockets, requests, endpoints", "role": "Systems Engineer"},
+                {"chapter_num": 6, "title": "Chapter 6: Security & Validation", "topic": "auth, validation, sanitization", "role": "Security Architect"},
+                {"chapter_num": 7, "title": "Chapter 7: Performance Optimization", "topic": "caching, async, threads", "role": "Performance Engineer"}
             ]
 
         full_document = (
