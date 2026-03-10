@@ -74,3 +74,35 @@ Start the development server:
 Bash
 npm run dev
 The dashboard will be available at http://localhost:5173
+
+## 🧪 Quality Assurance & Testing
+
+AURA is built with enterprise-grade reliability in mind, featuring comprehensive test suites across the full stack to ensure deterministic behavior, boundary safety, and graceful error handling.
+
+### Backend Testing (91% Coverage)
+The FastAPI backend is tested using `pytest` and heavily relies on dependency injection and mocking to simulate complex AI and File I/O workflows without consuming API credits.
+* **Unit & Boundary Testing:** Validates all FastAPI endpoints using Pydantic, ensuring malicious paths and empty payloads return proper HTTP error codes.
+* **Integration Testing:** Tests the `ProductionAgent` end-to-end by mocking external NVIDIA LLM and GitHub connections, while allowing local FAISS vectorization, Neo4j database routing, and Matplotlib graph generation to execute securely.
+
+**Run Backend Tests:**
+\`\`\`bash
+cd backend
+uv run pytest tests/ --cov=main --cov=chat_agent --cov=aura_agent --cov-report=term-missing
+\`\`\`
+
+### Frontend Testing (81% Coverage)
+The React frontend is tested using `Vitest` and `React Testing Library` to simulate a fully interactive DOM environment.
+* **UI Interaction & State:** Simulates user flows including repository URL submission, tab switching, and dynamic rendering of the streaming AI chat.
+* **API Mocking:** Isolates the frontend from the backend by intercepting `axios` and native `fetch` requests, guaranteeing the UI handles both "Happy Path" data and missing/broken data without crashing.
+
+**Run Frontend Tests:**
+\`\`\`bash
+cd aura-frontend
+npm run coverage
+\`\`\`
+
+## 🔒 Security & Compliance (SBOM)
+
+To comply with modern supply chain security standards, this repository includes fully generated **Software Bill of Materials (SBOM)** for both environments. These track all open-source dependencies and transitives used in AURA.
+* **Backend:** `backend/sbom-backend.json`
+* **Frontend:** `aura-frontend/sbom-frontend.json`
