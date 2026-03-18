@@ -573,10 +573,11 @@ function App() {
                                 <Typography component="span" sx={{ color: 'text.primary' }}>{suggestion}</Typography>
                               </Box>
 
-                              {/* 🔥 FIX: Scrollable wrapper box with minWidth to stop crushing the tables */}
+                              {/* 🔥 THE SCROLLBAR FIX: Outer box controls scrolling, inner box stretches infinitely */}
                               {originalCode && safeCode && (
                                 <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflowX: 'auto', width: '100%', mt: 2 }}>
-                                  <Box sx={{ minWidth: '800px' }}>
+                                  {/* Changed from minWidth: '800px' to width: 'max-content' so it expands to fit the longest line */}
+                                  <Box sx={{ minWidth: '100%', width: 'max-content' }}>
                                     <Box sx={{ p: 1.5, bgcolor: isDarkMode ? '#1e293b' : '#e2e8f0', borderBottom: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between' }}>
                                       <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'error.main', width: '50%' }}>Dangerous Code</Typography>
                                       <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'success.main', width: '50%' }}>AURA Safe Implementation</Typography>
@@ -591,6 +592,10 @@ function App() {
                                         variables: {
                                           dark: { diffViewerBackground: '#0d1117', addedBackground: 'rgba(34, 197, 94, 0.2)', removedBackground: 'rgba(239, 68, 68, 0.2)' },
                                           light: { diffViewerBackground: '#ffffff', addedBackground: '#dcfce7', removedBackground: '#fee2e2' }
+                                        },
+                                        // 🔥 Break the table constraints so columns expand properly
+                                        diffContainer: {
+                                          tableLayout: 'auto !important',
                                         },
                                         contentText: {
                                           whiteSpace: 'pre !important',
