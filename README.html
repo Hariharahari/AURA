@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project README</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #24292e;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px;
+            background-color: #ffffff;
+        }
+        h1, h2, h3 { border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+        pre {
+            background-color: #f6f8fa;
+            border-radius: 6px;
+            padding: 16px;
+            overflow: auto;
+            font-family: "Courier New", Courier, monospace;
+        }
+        code {
+            background-color: #f6f8fa;
+            border-radius: 3px;
+            padding: 0.2em 0.4em;
+            font-family: "Courier New", Courier, monospace;
+            font-size: 85%;
+        }
+        pre code { background-color: transparent; padding: 0; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 16px; }
+        th, td { border: 1px solid #dfe2e5; padding: 6px 13px; }
+        th { background-color: #f6f8fa; font-weight: 600; }
+        blockquote {
+            border-left: 0.25em solid #dfe2e5;
+            color: #6a737d;
+            padding: 0 1em;
+            margin: 0;
+        }
+        img { max-width: 100%; box-sizing: content-box; }
+    </style>
+</head>
+<body>
+    <h1>🧠 AURA: Architectural Audit &amp; Retrieval Agent</h1>
+<p><img alt="AURA Dashboard" src="https://img.shields.io/badge/Status-Active-success" />
+<img alt="Python" src="https://img.shields.io/badge/Backend-FastAPI-3b82f6" />
+<img alt="React" src="https://img.shields.io/badge/Frontend-React_Vite-61dafb" />
+<img alt="Neo4j" src="https://img.shields.io/badge/Database-Neo4j-4581c3" />
+<img alt="AI" src="https://img.shields.io/badge/AI-Llama_3.1_%7C_FAISS-000000" /></p>
+<p><strong>AURA</strong> is a full-stack, AI-powered system designed to automate the onboarding and architectural analysis of massive codebases. It fuses Static Code Analysis, Graph Theory, and Retrieval-Augmented Generation (RAG) to ingest GitHub repositories and instantly generate academic-grade documentation, interactive visual dependency graphs, and an interactive "Principal Architect" AI Chatbot.</p>
+<hr />
+<h2>✨ Core Features</h2>
+<ul>
+<li><strong>⚡ Autonomous Ingestion (MCP &amp; Git):</strong> Clones repositories dynamically using Anthropic's Model Context Protocol (MCP) with native OS subprocess fallbacks for absolute fault tolerance.</li>
+<li><strong>🕸️ Mathematical Dependency Mapping:</strong> Uses Python's <code>ast</code> (Abstract Syntax Tree) to parse code logic and extracts module dependencies without relying on fragile regex. Maps this data into a <strong>Neo4j Graph Database</strong>.</li>
+<li><strong>🧠 Semantic RAG Engine:</strong> Chunks code and vectorizes it using <code>nvidia/nv-embed-v1</code>, storing it in a persistent local <strong>FAISS Vector Database</strong>.</li>
+<li><strong>📄 Automated Documentation:</strong> Generates a 7-chapter, highly analytical system design document using <code>meta/llama-3.1-70b-instruct</code>. Uses <code>Matplotlib</code> and <code>NetworkX</code> to draw physics-based centrality graphs of the codebase's "nervous system."</li>
+<li><strong>💬 "Ask AURA" Chatbot:</strong> An interactive chat interface where the AI acts as a Principal System Architect. It strictly enforces zero-hallucination policies, identifies design patterns (Factory, Adapter, Facade), and cites specific file paths based on the FAISS context.</li>
+<li><strong>🎨 Premium UI/UX:</strong> A React &amp; Material-UI frontend featuring Dark/Light modes, Fullscreen execution, PDF downloading, and 2D physics-based floating graph visualizations using <code>react-force-graph-2d</code>.</li>
+</ul>
+<hr />
+<h2>🛠️ Tech Stack</h2>
+<h3>Backend</h3>
+<ul>
+<li><strong>Framework:</strong> FastAPI, Uvicorn (Python)</li>
+<li><strong>AI &amp; LLMs:</strong> LangChain, NVIDIA NIMs (Llama 3.1 70B, NV-Embed-v1)</li>
+<li><strong>Databases:</strong> Neo4j (Structural Graph), FAISS (Semantic Vectors)</li>
+<li><strong>Analysis:</strong> <code>ast</code>, NetworkX, Matplotlib, Kroki API</li>
+</ul>
+<h3>Frontend</h3>
+<ul>
+<li><strong>Framework:</strong> React (Vite)</li>
+<li><strong>UI Library:</strong> Material-UI (MUI), Emotion</li>
+<li><strong>Visualizations:</strong> <code>react-force-graph-2d</code>, React Markdown, Remark-GFM</li>
+</ul>
+<hr />
+<h2>🚀 Getting Started</h2>
+<h3>1. Prerequisites</h3>
+<ul>
+<li>Python 3.10+</li>
+<li>Node.js 18+</li>
+<li>A running instance of <a href="https://neo4j.com/">Neo4j</a> (Local or AuraDB)</li>
+<li>An NVIDIA API Key (for LLM and Embeddings)</li>
+</ul>
+<h3>2. Backend Setup</h3>
+<p>Navigate to the backend directory, install dependencies, and configure your environment:
+<code>``bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # On Windows use</code>venv\Scripts\activate`
+pip install -r requirements.txt
+Create a .env file in the backend directory:</p>
+<p>Code snippet
+NVIDIA_API_KEY=your_api_key_here
+(Ensure your Neo4j credentials in main.py match your local database).</p>
+<p>Run the server:</p>
+<p>Bash
+uv run main.py
+The backend will start on http://localhost:8000</p>
+<ol>
+<li>Frontend Setup
+Open a new terminal, navigate to the frontend directory, and install dependencies:</li>
+</ol>
+<p>Bash
+cd aura-frontend
+npm install
+Start the development server:</p>
+<p>Bash
+npm run dev
+The dashboard will be available at http://localhost:5173</p>
+<h2>🧪 Quality Assurance &amp; Testing</h2>
+<p>AURA is built with enterprise-grade reliability in mind, featuring comprehensive test suites across the full stack to ensure deterministic behavior, boundary safety, and graceful error handling.</p>
+<h3>Backend Testing (91% Coverage)</h3>
+<p>The FastAPI backend is tested using <code>pytest</code> and heavily relies on dependency injection and mocking to simulate complex AI and File I/O workflows without consuming API credits.
+* <strong>Unit &amp; Boundary Testing:</strong> Validates all FastAPI endpoints using Pydantic, ensuring malicious paths and empty payloads return proper HTTP error codes.
+* <strong>Integration Testing:</strong> Tests the <code>ProductionAgent</code> end-to-end by mocking external NVIDIA LLM and GitHub connections, while allowing local FAISS vectorization, Neo4j database routing, and Matplotlib graph generation to execute securely.</p>
+<p><strong>Run Backend Tests:</strong>
+```bash
+cd backend
+uv run pytest tests/ --cov=main --cov=chat_agent --cov=aura_agent --cov-report=term-missing
+```</p>
+<h3>Frontend Testing (81% Coverage)</h3>
+<p>The React frontend is tested using <code>Vitest</code> and <code>React Testing Library</code> to simulate a fully interactive DOM environment.
+* <strong>UI Interaction &amp; State:</strong> Simulates user flows including repository URL submission, tab switching, and dynamic rendering of the streaming AI chat.
+* <strong>API Mocking:</strong> Isolates the frontend from the backend by intercepting <code>axios</code> and native <code>fetch</code> requests, guaranteeing the UI handles both "Happy Path" data and missing/broken data without crashing.</p>
+<p><strong>Run Frontend Tests:</strong>
+```bash
+cd aura-frontend
+npm run coverage
+```</p>
+<h2>🔒 Security &amp; Compliance (SBOM)</h2>
+<p>To comply with modern supply chain security standards, this repository includes fully generated <strong>Software Bill of Materials (SBOM)</strong> for both environments. These track all open-source dependencies and transitives used in AURA.
+* <strong>Backend:</strong> <code>backend/sbom-backend.json</code>
+* <strong>Frontend:</strong> <code>aura-frontend/sbom-frontend.json</code></p>
+</body>
+</html>

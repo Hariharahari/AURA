@@ -20,6 +20,7 @@
     "html2pdf.js": "^0.14.0",
     "lucide-react": "^0.574.0",
     "react": "^19.2.0",
+    "react-diff-viewer-continued": "^4.2.0",
     "react-dom": "^19.2.0",
     "react-force-graph-2d": "^1.29.1",
     "react-markdown": "^10.1.0",
