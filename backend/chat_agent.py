@@ -46,7 +46,8 @@ class ChatAgent:
                 self.chat_histories[repo_name] = []
             history = self.chat_histories[repo_name]
 
-            # 🔥 BULLETPROOF PROMPT: Extremely strict instructions so the LLM doesn't skip tags or compress code
+            # 🔥 CDATA PROMPT UPGRADE: Forces strict formatting without squishing
+            # 🔥 THE ANTI-MINIFICATION PROMPT: Forcing the LLM to write real, multi-line Python
             prompt = ChatPromptTemplate.from_messages([
                 ("system", 
                 "You are AURA, an elite AI Codebase Assistant. Your task is to answer questions about the '{repo_name}' repository.\n\n"
@@ -62,9 +63,10 @@ class ChatAgent:
                 "6. **INTERACTIVE GRAPH (CRITICAL):** If your answer involves specific files, you MUST append a hidden XML tag at the very end of your response so the UI can highlight them. Format exactly like this:\n"
                 "<ui_graph>scrapy/core/engine.py, scrapy/core/scheduler.py</ui_graph>\n"
                 "CRITICAL RULE: Output the tag silently. DO NOT announce that you are doing this. DO NOT say 'Files lighting up in red'. Never reference the graph in your text.\n"
-                "7. **BLAST RADIUS (CRITICAL):** If the user proposes a code modification, you MUST intercept the request and output EXACTLY this XML format. YOU MUST INCLUDE EVERY SINGLE TAG.\n"
+                "7. **BLAST RADIUS (CRITICAL):** If the user proposes a code modification, you MUST intercept the request and output EXACTLY this XML format.\n"
+                "CRITICAL CODE RULE: You are STRICTLY FORBIDDEN from minifying, compressing, or summarizing code. You MUST use standard markdown code blocks (```python) inside the XML tags. You MUST preserve every single newline, indentation, and space.\n"
                 "<IMPACT_ANALYSIS>\n"
-                "<RISK_LEVEL>HIGH / MEDIUM / LOW</RISK_LEVEL>\n"
+                "<RISK_LEVEL>HIGH / MEDIUM / LOW/ SAFE</RISK_LEVEL>\n"
                 "<AFFECTED_FILES>List the specific files that will break.</AFFECTED_FILES>\n"
                 "<SYSTEM_IMPACT>Explain the domino effect on external APIs or systems.</SYSTEM_IMPACT>\n"
                 "<TECHNICAL_IMPACT>Explain the backend architecture risk.</TECHNICAL_IMPACT>\n"
@@ -72,14 +74,12 @@ class ChatAgent:
                 "<SUGGESTION>Provide the safe approach.</SUGGESTION>\n"
                 "<ORIGINAL_CODE>\n"
                 "```python\n"
-                "# YOU MUST PRESERVE ALL NEWLINES AND INDENTATION. NEVER COMPRESS CODE INTO A SINGLE LINE.\n"
-                "Paste the exact dangerous code the user provided here.\n"
+                "# PASTE THE EXACT USER CODE HERE. DO NOT SUMMARIZE IMPORTS. DO NOT REMOVE NEWLINES.\n"
                 "```\n"
                 "</ORIGINAL_CODE>\n"
                 "<SAFE_CODE>\n"
                 "```python\n"
-                "# YOU MUST USE STRICT PYTHON INDENTATION AND NEWLINES.\n"
-                "Write the new, architecturally safe code here.\n"
+                "# WRITE THE REFACTORED CODE HERE. YOU MUST USE MULTIPLE LINES AND PROPER PYTHON INDENTATION.\n"
                 "```\n"
                 "</SAFE_CODE>\n"
                 "</IMPACT_ANALYSIS>"
