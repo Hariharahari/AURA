@@ -8,7 +8,13 @@ import concurrent.futures
 import time
 import asyncio
 import json
+import re
+
+# 🔥 FIX: Tell matplotlib to run headless (no GUI popups) before importing pyplot
+import matplotlib
+matplotlib.use('Agg') 
 import matplotlib.pyplot as plt 
+
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
 from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings, ChatNVIDIA
@@ -47,10 +53,7 @@ class DependencyEngine:
         print(f"💾 Saving {len(nodes)} files and {len(edges)} connections to Neo4j for '{repo_name}'...")
         try:
             with self.driver.session() as session:
-                session.run(
-                    "MERGE (r:Repository {name: $repo_name})", 
-                    repo_name=repo_name
-                )
+                session.run("MERGE (r:Repository {name: $repo_name})", repo_name=repo_name)
                 for node in nodes:
                     filename = os.path.basename(node)
                     session.run(
@@ -147,7 +150,6 @@ class DependencyEngine:
 class ProductionAgent:
     def __init__(self):
         self.embeddings = NVIDIAEmbeddings(model="nvidia/nv-embed-v1", model_type="passage")
-        # 🔥 SPEED FIX: Changed to 8b model for lightning-fast generation
         self.llm = ChatNVIDIA(model="meta/llama-3.1-8b-instruct", temperature=0.1)
         self.vector_db = None
         self.dep_engine = None
@@ -220,43 +222,60 @@ class ProductionAgent:
         try: return self.vector_db.similarity_search(query, k=k)
         except: return []
 
-    def write_heavy_chapter(self, chapter_num, title, topic, role):
-        print(f"   ✍️  Writing {title} (Repository-Grounded Mode)...")
+    def write_heavy_chapter(self, chapter_num, title, topic, role, doc_type="technical"):
+        print(f"   ✍️  Writing {title} ({doc_type.upper()} Mode)...")
         
         docs = self._safe_search(topic, k=20)
         context = "\n".join([d.page_content[:800] for d in docs])
         
-        text_prompt = (
-            f"Act as a {role} and Lead System Architect. Write a COMPREHENSIVE, ACADEMIC-GRADE chapter titled '{title}'.\n\n"
-            f"TOPIC: {topic}\n"
-            f"CONTEXT FROM CODEBASE: {context}\n\n"
-            "CRITICAL REQUIREMENTS:\n"
-            "1. **NO GENERIC DEFINITIONS:** DO NOT write dictionary definitions of what a topic is. Assume the reader already knows the theory.\n"
-            "2. **REPOSITORY CONNECTION (CRITICAL):** You MUST explain exactly HOW this specific project implements the topic. Every subheading must explicitly analyze the actual codebase logic, naming specific classes, functions, and architecture decisions found in the Context.\n"
-            f"3. **Dynamic Numbered Subheadings:** Use numbered H2 (##) subheadings (e.g., ## {chapter_num}.1, ## {chapter_num}.2). The titles MUST be specific to how the codebase operates.\n"
-            "4. **Anti-Hallucination:** If the context lacks the specific topic, state clearly why this repository's architecture doesn't need it. Do not invent fake code.\n"
-            # 🔥 SPEED FIX: Shortened the length demand so it doesn't trigger the 5-minute timeout
-            "5. **Length:** Write around 400 to 500 words. Be highly analytical but concise to ensure lightning-fast generation.\n\n"
-            "Start the chapter immediately."
-        )
-        
-        diag_prompt = (
-            f"Act as a System Architect. Generate a Mermaid.js diagram for '{topic}'.\n"
-            f"Context: {context}\n"
-            "Return ONLY the mermaid code block (inside ```mermaid ... ```)."
-        )
+        if doc_type == "business":
+            text_prompt = (
+                f"Act as a Chief Product Officer and Business Analyst. Write a COMPREHENSIVE, ENTERPRISE-GRADE business chapter titled '{title}'.\n\n"
+                f"TOPIC: {topic}\n"
+                f"CONTEXT EXTRACTED FROM REPOSITORY: {context}\n\n"
+                "CRITICAL REQUIREMENTS:\n"
+                "1. **NO GENERIC THEORY:** DO NOT write general definitions or generic business jargon. Assume the reader knows basic business concepts.\n"
+                "2. **GROUNDED IN REPOSITORY (CRITICAL):** You MUST base every single sentence on the actual features found in the CONTEXT above. Explain exactly what THIS SPECIFIC application does, what user workflows it supports, and what business problems THIS codebase solves.\n"
+                "3. **STRICTLY NO CODE JARGON:** Translate the technical context into business capabilities. (e.g., instead of 'users table has a foreign key to posts', write 'Users can create and manage their own personalized posts').\n"
+                f"4. **Dynamic Numbered Subheadings:** Use numbered H2 (##) subheadings (e.g., ## {chapter_num}.1, ## {chapter_num}.2) with business-focused titles.\n"
+                "5. **Length:** Write around 400 words. Be highly professional.\n\n"
+                "Start the chapter immediately."
+            )
+            diag_prompt = (
+                f"Act as a Business Analyst. Generate a Mermaid.js 'flowchart TD' diagram illustrating the business workflow or user journey for '{topic}'.\n"
+                f"Context: {context}\n"
+                "Return ONLY the mermaid code block (inside ```mermaid ... ```). NO technical terms."
+            )
+        else:
+            text_prompt = (
+                f"Act as a {role} and Lead System Architect. Write a COMPREHENSIVE, ACADEMIC-GRADE chapter titled '{title}'.\n\n"
+                f"TOPIC: {topic}\n"
+                f"CONTEXT FROM CODEBASE: {context}\n\n"
+                "CRITICAL REQUIREMENTS:\n"
+                "1. **NO GENERIC DEFINITIONS:** DO NOT write dictionary definitions of what a topic is.\n"
+                "2. **REPOSITORY CONNECTION (CRITICAL):** You MUST explain exactly HOW this specific project implements the topic naming specific classes and files found in the Context.\n"
+                f"3. **Dynamic Numbered Subheadings:** Use numbered H2 (##) subheadings (e.g., ## {chapter_num}.1, ## {chapter_num}.2).\n"
+                "4. **Anti-Hallucination:** Do not invent fake code.\n"
+                "5. **Length:** Write around 400 words.\n\n"
+                "Start the chapter immediately."
+            )
+            diag_prompt = (
+                f"Act as a System Architect. Generate a Mermaid.js diagram for '{topic}'.\n"
+                f"Context: {context}\n"
+                "Return ONLY the mermaid code block (inside ```mermaid ... ```)."
+            )
         
         try:
             content = self.llm.invoke(text_prompt).content
             diagram = self.llm.invoke(diag_prompt).content.replace("```mermaid", "").replace("```", "").strip()
             
             mermaid_block = "```mermaid\n" + diagram + "\n```"
+            diagram_title = "Business Process Flow" if doc_type == "business" else "Subsystem Architecture Flow"
             
             full_chapter = (
                 f"# {title}\n\n"
                 f"{content}\n\n"
-                f"### {chapter_num}.X Subsystem Flow Diagram\n"
-                "The following diagram illustrates the structural relationships implemented in this module:\n\n"
+                f"### {chapter_num}.X {diagram_title}\n"
                 f"{mermaid_block}\n\n"
             )
             return full_chapter
@@ -264,10 +283,9 @@ class ProductionAgent:
             print(f"   ⚠️ Error writing chapter: {e}")
             return f"# {title}\n(Content generation failed)\n\n"
 
-    def generate_aura_report(self):
-        print("\n📚 GENERATING AURA REPORT (DYNAMIC EDITION)...")
+    def generate_aura_report(self, doc_type="technical"):
+        print(f"\n📚 GENERATING AURA REPORT ({doc_type.upper()} EDITION)...")
         
-        # 1. Gather a high-level summary to inform the LLM about the project shape
         top_nodes = sorted(self.dep_engine.graph.degree, key=lambda x: x[1], reverse=True)[:40]
         core_files = [os.path.basename(n[0]) for n in top_nodes]
         docs = self._safe_search("architecture overview main core modules entry point", k=15)
@@ -275,109 +293,115 @@ class ProductionAgent:
 
         print("   🧠 Analyzing FAISS DB and Graph to dynamically outline chapters...")
 
-        # 2. Instruct the LLM to write a custom JSON array of chapters based on the codebase
-        planning_prompt = (
-            f"Act as a Principal Software Architect. You need to outline an Architectural Manual for the '{self.current_repo_name}' repository.\n"
-            f"Critical files heavily connected in this project: {', '.join(core_files)}\n"
-            f"Codebase Context Snippets:\n{context}\n\n"
-            # 🔥 SPEED FIX: Forced it to exactly 7 chapters
-            "Based strictly on the file names and context provided, generate a dynamic table of contents (exactly 7 chapters) tailored EXACTLY to this codebase's specific domain.\n\n"
-            "CRITICAL RULES FOR CHAPTER TITLES:\n"
-            "1. NO GENERIC TITLES: You are STRICTLY FORBIDDEN from using generic terms like 'Core Functionality', 'Input/Output', 'State Management', 'Testing Framework', or 'Command-Line Interface'.\n"
-            "2. HYPER-SPECIFICITY: You MUST invent highly creative, deeply technical chapter titles that reflect the actual domain. (e.g., If it is a UI framework, write 'Terminal Rendering & Widget Pipeline'. If it is a database, write 'B-Tree Storage & Disk Allocation').\n"
-            "3. BIND TO CONTEXT: The 'topic' field must include specific class or file names you found in the context.\n\n"
-            "Return ONLY a valid JSON array of objects. No markdown formatting, no conversation, no explanation.\n"
-            "Format: [{\"chapter_num\": 1, \"title\": \"Chapter 1: [Highly Specific Name]\", \"topic\": \"[Specific technical keywords to search the FAISS DB for this chapter]\", \"role\": \"[e.g., Lead Engineer]\"}]"
-        )
+        if doc_type == "business":
+            planning_prompt = (
+                f"Act as a Chief Product Officer. Outline an Enterprise Business Manual for the '{self.current_repo_name}' product.\n"
+                f"Codebase Context Snippets:\n{context}\n\n"
+                "Generate a dynamic table of contents (exactly 6 chapters) tailored to the business capabilities of this app.\n\n"
+                "CRITICAL RULES: NO TECHNICAL TITLES. Use titles like 'User Access & Authentication Workflow' or 'Core E-Commerce Capabilities'.\n"
+                "Return ONLY a valid JSON array of objects. Format: [{\"chapter_num\": 1, \"title\": \"Chapter 1: [Business Name]\", \"topic\": \"[Technical keywords to search]\", \"role\": \"Product Manager\"}]"
+            )
+        else:
+            planning_prompt = (
+                f"Act as a Principal Software Architect. Outline an Architectural Manual for the '{self.current_repo_name}' repository.\n"
+                f"Critical files heavily connected in this project: {', '.join(core_files)}\n"
+                f"Codebase Context Snippets:\n{context}\n\n"
+                "Generate a dynamic table of contents (exactly 6 chapters) tailored EXACTLY to this codebase's specific domain.\n\n"
+                "CRITICAL RULES: NO GENERIC TITLES. Invent highly creative, deeply technical chapter titles.\n"
+                "Return ONLY a valid JSON array of objects. Format: [{\"chapter_num\": 1, \"title\": \"Chapter 1: [Specific Name]\", \"topic\": \"[Keywords]\", \"role\": \"Lead Engineer\"}]"
+            )
         
         try:
             plan_response = self.llm.invoke(planning_prompt).content
-            plan_response = plan_response.replace("```json", "").replace("```", "").strip()
-            chapters_plan = json.loads(plan_response)
-            print(f"   ✅ Dynamic chapters generated: {len(chapters_plan)} chapters specifically tailored to {self.current_repo_name}.")
+            
+            match = re.search(r'\[.*\]', plan_response, re.DOTALL)
+            if not match:
+                raise ValueError("No JSON array found in the AI response.")
+                
+            clean_json = match.group(0)
+            chapters_plan = json.loads(clean_json)
+            
+            print(f"   ✅ Dynamic chapters generated for {doc_type}: {len(chapters_plan)} chapters.")
         except Exception as e:
-            print(f"   ⚠️ Failed to dynamically generate chapters. Using enterprise fallback structure. Error: {e}")
-            # Fallback in case JSON formatting fails
-            chapters_plan = [
-                {"chapter_num": 1, "title": "Chapter 1: Core System Implementation", "topic": "client, core modules, data models, status, main execution flow", "role": "Chief Technology Officer"},
-                {"chapter_num": 2, "title": "Chapter 2: Subsystem Interaction", "topic": "parsing, processing, handlers", "role": "Backend Lead"},
-                {"chapter_num": 3, "title": "Chapter 3: Memory & State Management", "topic": "state persistence, cache, data storage", "role": "Product Architect"},
-                {"chapter_num": 4, "title": "Chapter 4: Extensibility Infrastructure", "topic": "plugins, extensions, middleware", "role": "Principal Software Engineer"},
-                {"chapter_num": 5, "title": "Chapter 5: Network Protocols & IPC", "topic": "sockets, requests, endpoints", "role": "Systems Engineer"},
-                {"chapter_num": 6, "title": "Chapter 6: Security & Validation", "topic": "auth, validation, sanitization", "role": "Security Architect"},
-                {"chapter_num": 7, "title": "Chapter 7: Performance Optimization", "topic": "caching, async, threads", "role": "Performance Engineer"}
-            ]
+            print(f"   ⚠️ Failed to dynamically generate chapters. Using fallback. Error: {e}")
+            if doc_type == "business":
+                chapters_plan = [
+                    {"chapter_num": 1, "title": "Chapter 1: Core Business Capabilities", "topic": "main features overview", "role": "Product Manager"},
+                    {"chapter_num": 2, "title": "Chapter 2: User Access & Security", "topic": "authentication, login, user security", "role": "Security Architect"},
+                    {"chapter_num": 3, "title": "Chapter 3: Data Management", "topic": "database, models, storage", "role": "Data Engineer"}
+                ]
+            else:
+                chapters_plan = [
+                    {"chapter_num": 1, "title": "Chapter 1: Core System Implementation", "topic": "main execution flow", "role": "Architect"},
+                    {"chapter_num": 2, "title": "Chapter 2: Routing & Endpoints", "topic": "api, routes, web framework", "role": "Backend Lead"}
+                ]
 
+        toc = "## 📑 Table of Contents (Index)\n\n"
+        for chap in chapters_plan:
+            title = chap.get("title", "Chapter")
+            anchor = title.lower().replace(" ", "-").replace(":", "").replace(".", "")
+            toc += f"* [{title}](#{anchor})\n"
+        
+        if doc_type == "technical":
+            toc += "* [System Architecture Network](#system-architecture-network)\n\n"
+        else:
+            toc += "\n"
+
+        doc_title = "ENTERPRISE BUSINESS STRATEGY" if doc_type == "business" else "ARCHITECTURAL AUDIT"
+        
         full_document = (
-            f"# AURA: {self.current_repo_name.upper()} ARCHITECTURAL AUDIT\n\n"
+            f"# AURA: {self.current_repo_name.upper()} {doc_title}\n\n"
             f"**Target Repository:** {self.current_repo_name}\n"
-            f"**Generated By:** AURA Production Agent\n"
-            f"**Focus:** Applied System Architecture & Technical Implementation\n\n"
+            f"**Generated By:** AURA Production Agent\n\n"
+            f"{toc}"
         )
 
-        # 3. Iterate through the dynamically chosen chapters
         for chap in chapters_plan:
             full_document += self.write_heavy_chapter(
-                chap.get("chapter_num", 0),
-                chap.get("title", "Chapter"),
-                chap.get("topic", "codebase architecture"),
-                chap.get("role", "Architect")
+                chap.get("chapter_num", 0), chap.get("title", "Chapter"),
+                chap.get("topic", "features"), chap.get("role", "Expert"), doc_type
             )
             time.sleep(3)
         
-        # 4. Append the final unchanging NetworkX Visual Chapter
-        print("   🕸️  Visualizing Architecture Graph & Running AI Analysis...")
-        
-        top_nodes = sorted(self.dep_engine.graph.degree, key=lambda x: x[1], reverse=True)[:35]
-        nodes_list = [n[0] for n in top_nodes]
-        subgraph = self.dep_engine.graph.subgraph(nodes_list)
-        
-        plt.figure(figsize=(10, 8))
-        plt.gca().set_facecolor('#ffffff') 
-        pos = nx.spring_layout(subgraph, k=0.7, iterations=50)
-        nx.draw_networkx_edges(subgraph, pos, edge_color='#94a3b8', alpha=0.8)
-        nx.draw_networkx_nodes(subgraph, pos, node_color='#3b82f6', node_size=150)
-        labels = {n: os.path.basename(n) for n in subgraph.nodes()}
-        nx.draw_networkx_labels(subgraph, pos, labels, font_size=9, font_weight='bold')
-        
-        os.makedirs("images", exist_ok=True)
-        image_filename = f"architecture_{self.current_repo_name}.png"
-        image_path = os.path.join("images", image_filename)
-        plt.axis('off')
-        plt.savefig(image_path, format="PNG", bbox_inches='tight', dpi=300)
-        plt.close()
+        if doc_type == "technical":
+            print("   🕸️  Visualizing Architecture Graph & Running AI Analysis...")
+            top_nodes = sorted(self.dep_engine.graph.degree, key=lambda x: x[1], reverse=True)[:35]
+            nodes_list = [n[0] for n in top_nodes]
+            subgraph = self.dep_engine.graph.subgraph(nodes_list)
+            
+            plt.figure(figsize=(10, 8))
+            plt.gca().set_facecolor('#ffffff') 
+            pos = nx.spring_layout(subgraph, k=0.7, iterations=50)
+            nx.draw_networkx_edges(subgraph, pos, edge_color='#94a3b8', alpha=0.8)
+            nx.draw_networkx_nodes(subgraph, pos, node_color='#3b82f6', node_size=150)
+            labels = {n: os.path.basename(n) for n in subgraph.nodes()}
+            nx.draw_networkx_labels(subgraph, pos, labels, font_size=9, font_weight='bold')
+            
+            os.makedirs("images", exist_ok=True)
+            image_filename = f"architecture_{self.current_repo_name}.png"
+            image_path = os.path.join("images", image_filename)
+            plt.axis('off')
+            plt.savefig(image_path, format="PNG", bbox_inches='tight', dpi=300)
+            plt.close()
 
-        graph_explanation_prompt = (
-            f"Act as a Principal System Architect. I have generated a Dependency Graph of the '{self.current_repo_name}' repository. "
-            f"The most highly connected 'core' files in this architecture are: {', '.join([os.path.basename(n) for n in nodes_list[:15]])}.\n\n"
-            f"Write a highly detailed, 500-word architectural analysis explaining WHY these specific files are the central nervous system of the app. "
-            f"Explain how data and logic likely flow between these specific modules based on their names. Use subheadings (## 8.1, ## 8.2)."
-        )
-        
-        try:
-            graph_explanation = self.llm.invoke(graph_explanation_prompt).content
-        except:
-            graph_explanation = "Graph analysis could not be generated due to an AI error."
+            graph_explanation = self.llm.invoke(f"Explain WHY these core files are central to {self.current_repo_name}: {', '.join([os.path.basename(n) for n in nodes_list[:15]])}").content
+            
+            mermaid_graph = "graph TD\n"
+            for u, v in self.dep_engine.graph.edges():
+                if os.path.basename(u) in [os.path.basename(n) for n in nodes_list[:20]] and os.path.basename(v) in [os.path.basename(n) for n in nodes_list[:20]]:
+                    mermaid_graph += f"    {os.path.basename(u)} --> {os.path.basename(v)}\n"
 
-        mermaid_graph = "graph TD\n"
-        for u, v in self.dep_engine.graph.edges():
-            if os.path.basename(u) in [os.path.basename(n) for n in nodes_list[:20]] and os.path.basename(v) in [os.path.basename(n) for n in nodes_list[:20]]:
-                mermaid_graph += f"    {os.path.basename(u)} --> {os.path.basename(v)}\n"
-
-        graph_block = "```mermaid\n" + mermaid_graph + "\n```"
-
-        full_document += (
-            "# System Architecture Network\n\n"
-            "This chapter visualizes the 'Nervous System' of the codebase, highlighting the most critical modules based on centrality analysis.\n\n"
-            f"![System Architecture](http://localhost:8000/api/images/{image_filename})\n\n"
-            f"{graph_explanation}\n\n"
-            "### Critical Path Visualization (Mermaid)\n\n"
-            f"{graph_block}\n\n"
-        )
+            full_document += (
+                "# System Architecture Network\n\n"
+                f"![System Architecture](http://localhost:8000/api/images/{image_filename})\n\n"
+                f"{graph_explanation}\n\n"
+                "### Critical Path Visualization (Mermaid)\n\n"
+                f"```mermaid\n{mermaid_graph}\n```\n\n"
+            )
 
         os.makedirs("reports", exist_ok=True)
-        output_filename = os.path.join("reports", f"AURA_REPORT_{self.current_repo_name}.md")
-        
+        # 🔥 FIX: Dynamically saves as AURA_BUSINESS_REPORT or AURA_TECHNICAL_REPORT based on the current run
+        output_filename = os.path.join("reports", f"AURA_{doc_type.upper()}_REPORT_{self.current_repo_name}.md")
         with open(output_filename, "w", encoding="utf-8") as f:
             f.write(full_document)
             
@@ -386,7 +410,6 @@ class ProductionAgent:
 
     def generate_business_manual(self):
         print("\n   📢 Generating Customer-Facing Release Notes & Manual...")
-        
         docs = self._safe_search("routes, endpoints, main features, core business logic, user interface, API", k=25)
         context = "\n".join([d.page_content[:600] for d in docs])
         
@@ -403,19 +426,14 @@ class ProductionAgent:
             "   - **🎉 Release Notes:** Pretend this is version 1.0. Write an exciting launch announcement.\n\n"
             "Write the document now."
         )
-        
         try:
             content = self.llm.invoke(marketing_prompt).content
-            
             os.makedirs("reports", exist_ok=True)
             output_filename = os.path.join("reports", f"RELEASE_NOTES_{self.current_repo_name}.md")
-            
             with open(output_filename, "w", encoding="utf-8") as f:
                 f.write(content)
-                
             print(f"   ✅ SUCCESS: '{output_filename}' generated.")
             return output_filename
-            
         except Exception as e:
             print(f"   ⚠️ Error generating business manual: {e}")
             return None

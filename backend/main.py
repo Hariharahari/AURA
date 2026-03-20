@@ -6,9 +6,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 import uvicorn
 
-# Import the Document Generator
 from aura_agent import ProductionAgent, DependencyEngine
-# Import the Chatbot Agent
 from chat_agent import ChatAgent
 
 app = FastAPI(title="AURA Backend API")
@@ -25,11 +23,11 @@ NEO4J_URI = "bolt://127.0.0.1:7687"
 NEO4J_USER = "neo4j"
 NEO4J_PASSWORD = "harish@12" # Make sure this matches your Neo4j password!
 
-# Instantiate the ChatAgent globally
 global_chat_agent = ChatAgent()
 
 class AnalyzeRequest(BaseModel):
     url: str
+    doc_type: str = "both" # 🔥 Now accepts 'technical', 'business', or 'both'
 
 class ChatRequest(BaseModel):
     repo_name: str
@@ -40,49 +38,50 @@ def api_analyze_repo(request: AnalyzeRequest):
     try:
         agent = ProductionAgent()
         agent.dep_engine = DependencyEngine("", NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
-        
         agent.initialize_repo(request.url)
         
-        # 1. Generate the heavy technical architecture report
-        report_filename = agent.generate_aura_report()
-        
-        # 🔥 2. NEW: Generate the non-technical business/marketing manual!
-        notes_filename = agent.generate_business_manual()
+        # 🔥 The Magic Logic: Generate whatever the user requested!
+        if request.doc_type in ["technical", "both"]:
+            agent.generate_aura_report(doc_type="technical")
+            
+        if request.doc_type in ["business", "both"]:
+            agent.generate_aura_report(doc_type="business")
+            
+        # Always generate release notes
+        agent.generate_business_manual()
         
         agent.dep_engine.close()
         
-        # Return both file names to the frontend
-        return {
-            "status": "success", 
-            "repo_name": agent.current_repo_name, 
-            "report_file": report_filename,
-            "notes_file": notes_filename
-        }
+        return {"status": "success", "repo_name": agent.current_repo_name}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/chat")
 def api_chat(request: ChatRequest):
     try:
-        # Get the generator from the global agent
         response_generator = global_chat_agent.ask_question(request.repo_name, request.question)
-        
-        # Return a StreamingResponse directly to the frontend
         return StreamingResponse(response_generator, media_type="text/plain")
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/reports/{repo_name}")
-def api_get_report(repo_name: str):
-    filepath = os.path.join("reports", f"AURA_REPORT_{repo_name}.md")
+# 🔥 NEW ENDPOINT: Fetch Technical Report
+@app.get("/api/reports/technical/{repo_name}")
+def api_get_tech_report(repo_name: str):
+    filepath = os.path.join("reports", f"AURA_TECHNICAL_REPORT_{repo_name}.md")
     if not os.path.exists(filepath):
-        raise HTTPException(status_code=404, detail="Report not found. Generate it first.")
+        raise HTTPException(status_code=404, detail="Technical report not found.")
     with open(filepath, "r", encoding="utf-8") as f:
-        content = f.read()
-    return {"repo_name": repo_name, "content": content}
+        return {"content": f.read()}
 
-# 🔥 NEW ENDPOINT: Fetch the Business Release Notes for the UI
+# 🔥 NEW ENDPOINT: Fetch Business Report
+@app.get("/api/reports/business/{repo_name}")
+def api_get_biz_report(repo_name: str):
+    filepath = os.path.join("reports", f"AURA_BUSINESS_REPORT_{repo_name}.md")
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Business report not found.")
+    with open(filepath, "r", encoding="utf-8") as f:
+        return {"content": f.read()}
+
 @app.get("/api/notes/{repo_name}")
 def api_get_notes(repo_name: str):
     filepath = os.path.join("reports", f"RELEASE_NOTES_{repo_name}.md")
@@ -108,9 +107,9 @@ def api_get_image(image_name: str):
 
 @app.get("/api/repos")
 def api_list_repos():
-    files = glob.glob(os.path.join("reports", "AURA_REPORT_*.md"))
-    repos = [os.path.basename(f).replace("AURA_REPORT_", "").replace(".md", "") for f in files]
-    return {"repos": repos}
+    files = glob.glob(os.path.join("reports", "RELEASE_NOTES_*.md"))
+    repos = [os.path.basename(f).replace("RELEASE_NOTES_", "").replace(".md", "") for f in files]
+    return {"repos": list(set(repos))}
 
 if __name__ == "__main__":
     print("🚀 Starting AURA Backend API on http://localhost:8000")

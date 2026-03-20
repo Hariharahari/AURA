@@ -27,26 +27,31 @@ import Tooltip from '@mui/material/Tooltip';
 import { 
   GitHub, Terminal, Timeline, Description, Share, Download, 
   Chat as ChatIcon, Send, LightMode, DarkMode, Fullscreen, FullscreenExit,
-  Campaign, AccountTree 
+  Campaign, AccountTree, Assignment 
 } from '@mui/icons-material';
 
 function App() {
   const [url, setUrl] = useState('');
   const [repoName, setRepoName] = useState('');
+  const [docType, setDocType] = useState('both');
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
   
-  const [report, setReport] = useState('');
+  const [techReport, setTechReport] = useState('');
+  const [bizReport, setBizReport] = useState('');
   const [notes, setNotes] = useState('');
+  
   const [graph, setGraph] = useState({ nodes: [], links: [] });
   const [history, setHistory] = useState([]);
-  const [page, setPage] = useState('report');
   
+  const [page, setPage] = useState('notes'); 
   const [chatHistory, setChatHistory] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [isChatting, setIsChatting] = useState(false);
   
   const [highlightNodes, setHighlightNodes] = useState(new Set());
   const [showGraphPanel, setShowGraphPanel] = useState(false);
+  const [hoverNode, setHoverNode] = useState(null);
 
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -67,6 +72,20 @@ function App() {
     },
   }), [isDarkMode]);
 
+  const graphNeighbors = useMemo(() => {
+    const neighbors = new Map();
+    if (!graph || !graph.links) return neighbors;
+    graph.links.forEach(link => {
+      const sourceId = typeof link.source === 'object' ? String(link.source.id) : String(link.source);
+      const targetId = typeof link.target === 'object' ? String(link.target.id) : String(link.target);
+      if (!neighbors.has(sourceId)) neighbors.set(sourceId, new Set());
+      if (!neighbors.has(targetId)) neighbors.set(targetId, new Set());
+      neighbors.get(sourceId).add(targetId);
+      neighbors.get(targetId).add(sourceId);
+    });
+    return neighbors;
+  }, [graph]);
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatHistory]);
@@ -76,6 +95,30 @@ function App() {
     fetchHistory();
     return () => (mounted.current = false);
   }, []);
+
+  useEffect(() => {
+    let interval;
+    if (loading) {
+      const messages = [
+        "Cloning repository...",
+        "Mapping AST dependencies in Neo4j...",
+        "Vectorizing code into FAISS Database...",
+        "Consulting AURA AI Agents...",
+        "Drafting architectural chapters...",
+        "Visualizing the network graph...",
+        "Applying finishing touches..."
+      ];
+      let i = 0;
+      setLoadingMessage(messages[0]);
+      interval = setInterval(() => {
+        i = (i + 1) % messages.length;
+        setLoadingMessage(messages[i]);
+      }, 6000); 
+    } else {
+      setLoadingMessage('');
+    }
+    return () => clearInterval(interval);
+  }, [loading]);
 
   const fetchHistory = async () => {
     try {
@@ -89,7 +132,7 @@ function App() {
     if (!url) return;
     setLoading(true);
     try {
-      const res = await axios.post('http://localhost:8000/api/analyze', { url });
+      const res = await axios.post('http://localhost:8000/api/analyze', { url, doc_type: docType });
       setRepoName(res.data.repo_name);
       await load(res.data.repo_name);
       fetchHistory();
@@ -101,23 +144,39 @@ function App() {
   const downloadPDF = () => window.print();
 
   const load = async (name) => {
-    const r = await axios.get(`http://localhost:8000/api/reports/${name}`);
-    const g = await axios.get(`http://localhost:8000/api/graph/${name}`);
+    try {
+        const tr = await axios.get(`http://localhost:8000/api/reports/technical/${name}`);
+        setTechReport(tr.data.content);
+    } catch (e) {
+        setTechReport("⚠️ Technical Audit not generated for this repository. Select 'Technical' or 'Both' and re-analyze.");
+    }
     
-    let nData = "Release notes not found. Try analyzing the repository again.";
+    try {
+        const br = await axios.get(`http://localhost:8000/api/reports/business/${name}`);
+        setBizReport(br.data.content);
+    } catch (e) {
+        setBizReport("⚠️ Business Strategy not generated for this repository. Select 'Business' or 'Both' and re-analyze.");
+    }
+    
     try {
         const n = await axios.get(`http://localhost:8000/api/notes/${name}`);
-        nData = n.data.content;
+        setNotes(n.data.content);
     } catch (e) {
-        console.warn("Could not load release notes for", name);
+        setNotes("Release notes not found.");
+    }
+
+    try {
+        const g = await axios.get(`http://localhost:8000/api/graph/${name}`);
+        setGraph(g.data);
+    } catch (e) {
+        setGraph({ nodes: [], links: [] });
     }
 
     if (!mounted.current) return;
-    setReport(r.data.content);
-    setNotes(nData);
-    setGraph(g.data);
+    
     setHighlightNodes(new Set());
     setChatHistory([{ role: 'bot', text: `Hello! I am AURA. You can ask me anything about the **${name}** codebase.` }]);
+    setPage('notes'); 
   };
 
   const handleSendMessage = async (e) => {
@@ -167,7 +226,7 @@ function App() {
             const files = rawFiles
                 .replace(/\r?\n|\r/g, '')
                 .split(',')
-                .map(f => f.trim().replace(/\\/g, '/').split('/').pop().toLowerCase())
+                .map(f => f.trim().replace(/\\/g, '/').toLowerCase())
                 .filter(f => f.length > 0);
 
             setHighlightNodes(new Set(files));
@@ -198,42 +257,90 @@ function App() {
     }
   };
 
-  // 🔥 THE PYTHON RESCUE FORMATTER
+  // 🔥 FIX 1: Cleaned up formatCode so it preserves proper LLM line breaks!
   const formatCode = (codeStr) => {
     if (!codeStr) return '';
     let cleaned = codeStr.trim();
-    
-    // 1. Strip CDATA tags generated by the AI
-    cleaned = cleaned.replace(/<!\[CDATA\[/gi, '').replace(/]]>/gi, '');
-    
-    // 2. Un-escape string literal newlines
-    cleaned = cleaned.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\r/g, '\n');
-    
-    // 3. Remove markdown formatting
+    // Remove Markdown wrappers if the LLM added them inside the XML tag
     cleaned = cleaned.replace(/^```[a-zA-Z]*\n?/gm, '');
-    cleaned = cleaned.replace(/```/g, '');
-    
-    // 4. Fallback for completely squished strings
-    if (!cleaned.includes('\n')) {
-         cleaned = cleaned
-             .replace(/ class /g, '\nclass ')
-             .replace(/ def /g, '\ndef ')
-             .replace(/ async def /g, '\nasync def ')
-             .replace(/ if /g, '\nif ')
-             .replace(/ try:/g, '\ntry:\n')
-             .replace(/ except /g, '\nexcept ')
-             .replace(/ finally:/g, '\nfinally:\n')
-             .replace(/ for /g, '\nfor ')
-             .replace(/ await /g, '\nawait ')
-             .replace(/ return /g, '\nreturn ')
-             .replace(/ from /g, '\nfrom ')
-             .replace(/ import /g, '\nimport ')
-             .replace(/ yield /g, '\nyield ')
-             .replace(/ scope\[/g, '\nscope[');
-    }
-    
+    cleaned = cleaned.replace(/```$/gm, '');
     return cleaned.trim();
   };
+
+  // 🔥 FIX 2: A robust extractor that grabs text even if the LLM is still streaming and missing the closing tag
+  const extractTag = (text, tag) => {
+    const regex = new RegExp(`<${tag}>([\\s\\S]*?)(?:<\\/${tag}>|$)`, 'i');
+    const match = text.match(regex);
+    return match ? match[1].trim() : '';
+  };
+
+  const getGraphProps = () => ({
+    nodeColor: (node) => {
+      const nodeIdRaw = String(node.id || '');
+      const nodeIdLow = nodeIdRaw.replace(/\\/g, '/').toLowerCase();
+      const nodeNameLow = String(node.name || '').toLowerCase();
+      
+      const isTarget = Array.from(highlightNodes).some(f => nodeIdLow === f || nodeIdLow.endsWith('/' + f) || nodeNameLow === f);
+      const isHovered = hoverNode && hoverNode.id === node.id;
+      const isNeighbor = hoverNode && graphNeighbors.get(hoverNode.id)?.has(nodeIdRaw);
+
+      if (isHovered) return '#f59e0b';
+      if (isNeighbor) return '#fbbf24';
+      if (isTarget) return '#ef4444'; 
+      
+      if (highlightNodes.size > 0 || hoverNode) return isDarkMode ? '#1e293b' : '#e2e8f0';
+      return isDarkMode ? '#334155' : '#cbd5e1';
+    },
+    linkColor: (link) => {
+      const sourceIdRaw = typeof link.source === 'object' ? link.source.id : link.source;
+      const targetIdRaw = typeof link.target === 'object' ? link.target.id : link.target;
+      const sourceIdLow = String(sourceIdRaw || '').replace(/\\/g, '/').toLowerCase();
+      const targetIdLow = String(targetIdRaw || '').replace(/\\/g, '/').toLowerCase();
+      
+      const isHoverLink = hoverNode && (sourceIdRaw === hoverNode.id || targetIdRaw === hoverNode.id);
+      const sHigh = Array.from(highlightNodes).some(f => sourceIdLow === f || sourceIdLow.endsWith('/' + f));
+      const tHigh = Array.from(highlightNodes).some(f => targetIdLow === f || targetIdLow.endsWith('/' + f));
+      const isTargetLink = sHigh || tHigh;
+
+      if (isHoverLink) return '#f59e0b';
+      if (isTargetLink) return "rgba(239, 68, 68, 0.6)";
+
+      if (highlightNodes.size > 0 || hoverNode) return isDarkMode ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.05)";
+      return isDarkMode ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.2)";
+    },
+    nodeCanvasObjectMode: () => 'after',
+    nodeCanvasObject: (node, ctx, globalScale) => {
+      const nodeIdRaw = String(node.id || '');
+      const nodeIdLow = nodeIdRaw.replace(/\\/g, '/').toLowerCase();
+      const nodeNameLow = String(node.name || '').toLowerCase();
+      
+      const isTarget = Array.from(highlightNodes).some(f => nodeIdLow === f || nodeIdLow.endsWith('/' + f) || nodeNameLow === f);
+      const isHovered = hoverNode && hoverNode.id === node.id;
+      const isNeighbor = hoverNode && graphNeighbors.get(hoverNode.id)?.has(nodeIdRaw);
+
+      if (isHovered || isNeighbor || isTarget) {
+        const label = String(node.name || node.id).split('/').pop(); 
+        const fontSize = 12 / globalScale;
+        ctx.font = `${fontSize}px Sans-Serif`;
+        
+        const textWidth = ctx.measureText(label).width;
+        const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.2);
+
+        ctx.fillStyle = isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.9)';
+        ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y + 8 - bckgDimensions[1] / 2, bckgDimensions[0], bckgDimensions[1]);
+
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        if (isTarget) ctx.fillStyle = '#ef4444';
+        else if (isHovered) ctx.fillStyle = '#f59e0b';
+        else if (isNeighbor) ctx.fillStyle = '#fbbf24';
+        else ctx.fillStyle = isDarkMode ? '#e2e8f0' : '#1e293b';
+        
+        ctx.fillText(label, node.x, node.y + 8);
+      }
+    },
+    onNodeHover: setHoverNode
+  });
 
   return (
     <ThemeProvider theme={theme}>
@@ -301,7 +408,7 @@ function App() {
                 <InputLabel>Memory Logs</InputLabel>
                 <Select
                   value={repoName} label="Memory Logs"
-                  onChange={(e) => { setRepoName(e.target.value); load(e.target.value); setPage('report'); setIsFullscreen(false); }}
+                  onChange={(e) => { setRepoName(e.target.value); load(e.target.value); setPage('notes'); setIsFullscreen(false); }}
                   sx={{ bgcolor: 'background.paper' }}
                 >
                   <MenuItem value=""><em>New Repo</em></MenuItem>
@@ -335,16 +442,48 @@ function App() {
                     onChange={(e) => setUrl(e.target.value)}
                     sx={{ '& .MuiInputBase-input': { pl: 3, py: 3 } }} variant="standard" InputProps={{ disableUnderline: true }}
                   />
+                  
+                  <FormControl variant="standard" sx={{ minWidth: 200, ml: 2, mr: 2 }}>
+                    <Select
+                      value={docType}
+                      onChange={(e) => setDocType(e.target.value)}
+                      disableUnderline
+                      sx={{ color: 'text.primary', fontWeight: 'bold' }}
+                    >
+                      <MenuItem value="both">Both (Comprehensive)</MenuItem>
+                      <MenuItem value="technical">Technical Audit Only</MenuItem>
+                      <MenuItem value="business">Business Strategy Only</MenuItem>
+                    </Select>
+                  </FormControl>
+
                   <Button
                     type="submit" disabled={loading} variant="contained"
                     sx={{ px: 5, py: 3, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.1em' }}
                     startIcon={loading ? <CircularProgress size={20} /> : null}
                   >
-                    {loading ? 'Analyzing...' : 'Initiate Analysis'}
+                    {loading ? 'Processing...' : 'Initiate Analysis'}
                   </Button>
                 </Box>
               </form>
             </Card>
+            
+            {loading && (
+              <Box sx={{ mt: 4, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                <Typography variant="body1" sx={{ 
+                  color: 'primary.main', 
+                  fontWeight: 'bold', 
+                  letterSpacing: '0.05em',
+                  animation: 'pulse 1.5s infinite',
+                  '@keyframes pulse': {
+                    '0%': { opacity: 0.6 },
+                    '50%': { opacity: 1 },
+                    '100%': { opacity: 0.6 },
+                  }
+                }}>
+                  {loadingMessage}
+                </Typography>
+              </Box>
+            )}
           </Container>
         )}
 
@@ -361,8 +500,9 @@ function App() {
                 '@media print': { display: 'none !important' } 
               }}>
                 <Tabs value={page} onChange={(e, newValue) => setPage(newValue)} sx={{ pt: 3 }} variant="scrollable" scrollButtons="auto">
-                  <Tab value="report" icon={<Description />} label="Project Document" iconPosition="start" />
                   <Tab value="notes" icon={<Campaign />} label="Release Notes" iconPosition="start" />
+                  <Tab value="biz" icon={<Assignment />} label="Business Strategy" iconPosition="start" />
+                  <Tab value="tech" icon={<Description />} label="Technical Audit" iconPosition="start" />
                   <Tab value="graph" icon={<Share />} label="Dependency Graph" iconPosition="start" />
                   <Tab value="chat" icon={<ChatIcon />} label="Ask AURA" iconPosition="start" />
                 </Tabs>
@@ -374,55 +514,7 @@ function App() {
               '@media print': { display: 'block !important', overflow: 'visible !important', p: 0, m: 0 }
             }}>
               
-              {page === 'report' && (
-                <Container maxWidth={isFullscreen ? false : "lg"} sx={{ height: '100%', '@media print': { maxWidth: '100% !important', p: 0, m: 0 } }}>
-                  <Card sx={{ 
-                    p: isFullscreen ? 6 : 8, 
-                    minHeight: isFullscreen ? '100vh' : 'auto',
-                    bgcolor: 'background.paper', 
-                    border: isFullscreen ? 'none' : '1px solid', borderColor: 'divider', 
-                    borderRadius: isFullscreen ? 0 : 10, boxShadow: isFullscreen ? 'none' : 3,
-                    '@media print': { p: 0, border: 'none !important', boxShadow: 'none !important', borderRadius: 0, bgcolor: 'white !important' }
-                  }}>
-                    <Box sx={{ 
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2,
-                      '@media print': { display: 'none !important' } 
-                    }}>
-                      <Typography variant="h5" sx={{ color: 'text.primary', fontWeight: 'bold' }}>Repository Analysis Report</Typography>
-                      <Box sx={{ display: 'flex', gap: 2 }}>
-                        <Button 
-                          variant="outlined" 
-                          startIcon={isFullscreen ? <FullscreenExit /> : <Fullscreen />} 
-                          onClick={() => setIsFullscreen(!isFullscreen)} 
-                          sx={{ textTransform: 'none' }}
-                        >
-                          {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-                        </Button>
-                        <Button variant="contained" startIcon={<Download />} onClick={downloadPDF} sx={{ textTransform: 'none' }}>Download PDF</Button>
-                      </Box>
-                    </Box>
-                    <Box sx={{ position: 'relative' }}>
-                      <Box sx={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 4, bgcolor: 'primary.main', opacity: 0.5, '@media print': { display: 'none !important' } }} />
-                      
-                      <Box className="prose-container" sx={{ 
-                        fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
-                        '& h1': { color: 'text.primary', fontSize: '2.5rem', fontWeight: 900, mt: 6, mb: 3, pb: 1, borderBottom: 1, borderColor: 'divider' }, 
-                        '& h2': { color: isDarkMode ? '#60a5fa' : '#1d4ed8', fontSize: '1.8rem', fontWeight: 700, mt: 5, mb: 2 }, 
-                        '& h3': { color: isDarkMode ? '#93c5fd' : '#2563eb', fontSize: '1.4rem', fontWeight: 600, mt: 4, mb: 1.5 }, 
-                        '& p': { color: 'text.secondary', fontSize: '1.15rem', lineHeight: 1.8, mb: 3 }, 
-                        '& strong': { color: 'text.primary', fontWeight: 700 }, 
-                        '& li': { color: 'text.secondary', fontSize: '1.15rem', lineHeight: 1.8, mb: 1 },
-                        '& pre': { bgcolor: isDarkMode ? '#0f172a' : '#f8fafc', p: 3, borderRadius: 2, mb: 4, border: 1, borderColor: 'divider', overflowX: 'auto', fontFamily: 'Consolas, "Courier New", monospace' },
-                        '& code': { color: isDarkMode ? '#93c5fd' : '#1d4ed8', fontFamily: 'Consolas, "Courier New", monospace' },
-                        '& img': { maxWidth: '100%', borderRadius: '8px', mt: 2, mb: 4 },
-                      }}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{report}</ReactMarkdown>
-                      </Box>
-                    </Box>
-                  </Card>
-                </Container>
-              )}
-
+              {/* RELEASE NOTES TAB */}
               {page === 'notes' && (
                 <Container maxWidth={isFullscreen ? false : "md"} sx={{ height: '100%', '@media print': { maxWidth: '100% !important', p: 0, m: 0 } }}>
                   <Card sx={{ 
@@ -469,6 +561,107 @@ function App() {
                 </Container>
               )}
 
+              {/* BUSINESS STRATEGY TAB */}
+              {page === 'biz' && (
+                <Container maxWidth={isFullscreen ? false : "lg"} sx={{ height: '100%', '@media print': { maxWidth: '100% !important', p: 0, m: 0 } }}>
+                  <Card sx={{ 
+                    p: isFullscreen ? 6 : 8, 
+                    minHeight: isFullscreen ? '100vh' : 'auto',
+                    bgcolor: 'background.paper', 
+                    border: isFullscreen ? 'none' : '1px solid', borderColor: 'divider', 
+                    borderRadius: isFullscreen ? 0 : 10, boxShadow: isFullscreen ? 'none' : 3,
+                    '@media print': { p: 0, border: 'none !important', boxShadow: 'none !important', borderRadius: 0, bgcolor: 'white !important' }
+                  }}>
+                    <Box sx={{ 
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2,
+                      '@media print': { display: 'none !important' } 
+                    }}>
+                      <Typography variant="h5" sx={{ color: 'text.primary', fontWeight: 'bold' }}>Enterprise Business Strategy</Typography>
+                      <Box sx={{ display: 'flex', gap: 2 }}>
+                        <Button 
+                          variant="outlined" 
+                          startIcon={isFullscreen ? <FullscreenExit /> : <Fullscreen />} 
+                          onClick={() => setIsFullscreen(!isFullscreen)} 
+                          sx={{ textTransform: 'none' }}
+                        >
+                          {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                        </Button>
+                        <Button variant="contained" startIcon={<Download />} onClick={downloadPDF} sx={{ textTransform: 'none' }}>Download PDF</Button>
+                      </Box>
+                    </Box>
+                    <Box sx={{ position: 'relative' }}>
+                      <Box sx={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 4, bgcolor: 'primary.main', opacity: 0.5, '@media print': { display: 'none !important' } }} />
+                      
+                      <Box className="prose-container" sx={{ 
+                        fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
+                        '& h1': { color: 'text.primary', fontSize: '2.5rem', fontWeight: 900, mt: 6, mb: 3, pb: 1, borderBottom: 1, borderColor: 'divider' }, 
+                        '& h2': { color: isDarkMode ? '#60a5fa' : '#1d4ed8', fontSize: '1.8rem', fontWeight: 700, mt: 5, mb: 2 }, 
+                        '& h3': { color: isDarkMode ? '#93c5fd' : '#2563eb', fontSize: '1.4rem', fontWeight: 600, mt: 4, mb: 1.5 }, 
+                        '& p': { color: 'text.secondary', fontSize: '1.15rem', lineHeight: 1.8, mb: 3 }, 
+                        '& strong': { color: 'text.primary', fontWeight: 700 }, 
+                        '& li': { color: 'text.secondary', fontSize: '1.15rem', lineHeight: 1.8, mb: 1 },
+                        '& pre': { bgcolor: isDarkMode ? '#0f172a' : '#f8fafc', p: 3, borderRadius: 2, mb: 4, border: 1, borderColor: 'divider', overflowX: 'auto', fontFamily: 'Consolas, "Courier New", monospace' },
+                        '& code': { color: isDarkMode ? '#93c5fd' : '#1d4ed8', fontFamily: 'Consolas, "Courier New", monospace' },
+                        '& img': { maxWidth: '100%', borderRadius: '8px', mt: 2, mb: 4 },
+                      }}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{bizReport}</ReactMarkdown>
+                      </Box>
+                    </Box>
+                  </Card>
+                </Container>
+              )}
+
+              {/* TECHNICAL AUDIT TAB */}
+              {page === 'tech' && (
+                <Container maxWidth={isFullscreen ? false : "lg"} sx={{ height: '100%', '@media print': { maxWidth: '100% !important', p: 0, m: 0 } }}>
+                  <Card sx={{ 
+                    p: isFullscreen ? 6 : 8, 
+                    minHeight: isFullscreen ? '100vh' : 'auto',
+                    bgcolor: 'background.paper', 
+                    border: isFullscreen ? 'none' : '1px solid', borderColor: 'divider', 
+                    borderRadius: isFullscreen ? 0 : 10, boxShadow: isFullscreen ? 'none' : 3,
+                    '@media print': { p: 0, border: 'none !important', boxShadow: 'none !important', borderRadius: 0, bgcolor: 'white !important' }
+                  }}>
+                    <Box sx={{ 
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2,
+                      '@media print': { display: 'none !important' } 
+                    }}>
+                      <Typography variant="h5" sx={{ color: 'text.primary', fontWeight: 'bold' }}>Technical Architecture Audit</Typography>
+                      <Box sx={{ display: 'flex', gap: 2 }}>
+                        <Button 
+                          variant="outlined" 
+                          startIcon={isFullscreen ? <FullscreenExit /> : <Fullscreen />} 
+                          onClick={() => setIsFullscreen(!isFullscreen)} 
+                          sx={{ textTransform: 'none' }}
+                        >
+                          {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                        </Button>
+                        <Button variant="contained" startIcon={<Download />} onClick={downloadPDF} sx={{ textTransform: 'none' }}>Download PDF</Button>
+                      </Box>
+                    </Box>
+                    <Box sx={{ position: 'relative' }}>
+                      <Box sx={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 4, bgcolor: 'primary.main', opacity: 0.5, '@media print': { display: 'none !important' } }} />
+                      
+                      <Box className="prose-container" sx={{ 
+                        fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
+                        '& h1': { color: 'text.primary', fontSize: '2.5rem', fontWeight: 900, mt: 6, mb: 3, pb: 1, borderBottom: 1, borderColor: 'divider' }, 
+                        '& h2': { color: isDarkMode ? '#60a5fa' : '#1d4ed8', fontSize: '1.8rem', fontWeight: 700, mt: 5, mb: 2 }, 
+                        '& h3': { color: isDarkMode ? '#93c5fd' : '#2563eb', fontSize: '1.4rem', fontWeight: 600, mt: 4, mb: 1.5 }, 
+                        '& p': { color: 'text.secondary', fontSize: '1.15rem', lineHeight: 1.8, mb: 3 }, 
+                        '& strong': { color: 'text.primary', fontWeight: 700 }, 
+                        '& li': { color: 'text.secondary', fontSize: '1.15rem', lineHeight: 1.8, mb: 1 },
+                        '& pre': { bgcolor: isDarkMode ? '#0f172a' : '#f8fafc', p: 3, borderRadius: 2, mb: 4, border: 1, borderColor: 'divider', overflowX: 'auto', fontFamily: 'Consolas, "Courier New", monospace' },
+                        '& code': { color: isDarkMode ? '#93c5fd' : '#1d4ed8', fontFamily: 'Consolas, "Courier New", monospace' },
+                        '& img': { maxWidth: '100%', borderRadius: '8px', mt: 2, mb: 4 },
+                      }}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{techReport}</ReactMarkdown>
+                      </Box>
+                    </Box>
+                  </Card>
+                </Container>
+              )}
+
+              {/* GRAPH TAB */}
               {page === 'graph' && (
                 <Card className="no-print" sx={{ position: 'relative', height: '100%', bgcolor: isDarkMode ? 'rgba(0,0,0,0.4)' : 'background.paper', border: 1, borderColor: 'divider', borderRadius: isFullscreen ? 0 : 4, overflow: 'hidden' }}>
                   <Box sx={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
@@ -485,12 +678,13 @@ function App() {
                     key={`${repoName}-${isDarkMode}-${isFullscreen}`} 
                     graphData={graph} 
                     backgroundColor="rgba(0,0,0,0)" 
-                    linkColor={() => isDarkMode ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.2)"} 
                     nodeRelSize={10} 
+                    {...getGraphProps()}
                   />
                 </Card>
               )}
 
+              {/* CHAT TAB */}
               {page === 'chat' && (
                 <Box sx={{ display: 'flex', flexDirection: 'row', gap: 3, height: '100%' }}>
                   
@@ -521,20 +715,23 @@ function App() {
                         let messageContent;
 
                         if (isImpactAnalysis) {
-                          const riskLevel = displayText.match(/<RISK_LEVEL>([\s\S]*?)<\/RISK_LEVEL>/i)?.[1]?.trim() || 'ANALYZING...';
-                          const affectedFiles = displayText.match(/<AFFECTED_FILES>([\s\S]*?)<\/AFFECTED_FILES>/i)?.[1]?.trim() || '';
-                          const systemImpact = displayText.match(/<SYSTEM_IMPACT>([\s\S]*?)<\/SYSTEM_IMPACT>/i)?.[1]?.trim() || 'No downstream system impact explicitly detected.';
-                          const techImpact = displayText.match(/<TECHNICAL_IMPACT>([\s\S]*?)<\/TECHNICAL_IMPACT>/i)?.[1]?.trim() || '';
-                          const userImpact = displayText.match(/<USER_IMPACT>([\s\S]*?)<\/USER_IMPACT>/i)?.[1]?.trim() || '';
-                          const suggestion = displayText.match(/<SUGGESTION>([\s\S]*?)<\/SUGGESTION>/i)?.[1]?.trim() || '';
+                          // 🔥 FIX 3: Safe, streaming-friendly XML parsing regexes
+                          const riskLevel = extractTag(displayText, 'RISK_LEVEL') || 'ANALYZING...';
+                          const affectedFiles = extractTag(displayText, 'AFFECTED_FILES');
+                          const systemImpact = extractTag(displayText, 'SYSTEM_IMPACT');
+                          const techImpact = extractTag(displayText, 'TECHNICAL_IMPACT');
+                          const userImpact = extractTag(displayText, 'USER_IMPACT');
+                          const suggestion = extractTag(displayText, 'SUGGESTION');
                           
-                          const originalCode = formatCode(displayText.match(/<ORIGINAL_CODE>([\s\S]*?)<\/ORIGINAL_CODE>/i)?.[1]);
-                          const safeCode = formatCode(displayText.match(/<SAFE_CODE>([\s\S]*?)<\/SAFE_CODE>/i)?.[1]);
+                          const originalCode = formatCode(extractTag(displayText, 'ORIGINAL_CODE'));
+                          const safeCode = formatCode(extractTag(displayText, 'SAFE_CODE'));
 
-                          // Calculate the exact numeric Blast Radius Value
+                          // Capture any extra text the AI outputs outside the XML tags
+                          const preText = displayText.split('<IMPACT_ANALYSIS>')[0].trim();
+                          const postTextMatch = displayText.match(/<\/IMPACT_ANALYSIS>([\s\S]*)$/i);
+                          const postText = postTextMatch ? postTextMatch[1].trim() : '';
+
                           const blastRadiusValue = affectedFiles && affectedFiles.trim() !== '' ? affectedFiles.split(',').length : 0;
-
-                          // 🔥 DYNAMIC COLOR LOGIC based on Risk Level
                           const isLowRisk = riskLevel.toUpperCase().includes('LOW') || riskLevel.toUpperCase().includes('SAFE');
                           const isMediumRisk = riskLevel.toUpperCase().includes('MEDIUM');
 
@@ -556,84 +753,90 @@ function App() {
                           }
 
                           messageContent = (
-                            <Box sx={{ 
-                              border: '2px solid', borderColor: uiColor, 
-                              bgcolor: bgColor, 
-                              p: 3, borderRadius: 2, mt: 1, width: '100%',
-                              fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif'
-                            }}>
-                              <Typography variant="h6" sx={{ color: uiColor, fontWeight: 'bold', mb: 2, display: 'flex', alignItems: 'center' }}>
-                                {icon} {riskLevel.trim()} RISK: ARCHITECTURE IMPACT DETECTED
-                              </Typography>
+                            <Box sx={{ width: '100%', fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif' }}>
                               
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-                                <Box sx={{ 
-                                  bgcolor: uiColor, color: 'white', px: 2, py: 1, 
-                                  borderRadius: 1, fontWeight: 'bold', fontSize: '1.1rem',
-                                  boxShadow: `0 0 10px ${shadowColor}`
-                                }}>
-                                  💥 Blast Radius: {blastRadiusValue} Modules
-                                </Box>
-                                <Box sx={{ flex: 1 }}>
-                                  <Typography component="span" sx={{ fontWeight: 'bold', color: 'text.primary' }}>Affected Files: </Typography>
-                                  <Typography component="span" sx={{ color: 'text.secondary' }}>{affectedFiles}</Typography>
-                                </Box>
-                              </Box>
-
-                              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr' }, gap: 2, mb: 3 }}>
-                                <Card sx={{ p: 2, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
-                                  <Typography sx={{ color: '#1d4ed8', fontWeight: 'bold', mb: 1 }}>👨‍💻 Technical Impact</Typography>
-                                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>{techImpact}</Typography>
-                                </Card>
-                                <Card sx={{ p: 2, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
-                                  <Typography sx={{ color: '#059669', fontWeight: 'bold', mb: 1 }}>🌍 System Impact</Typography>
-                                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>{systemImpact}</Typography>
-                                </Card>
-                                <Card sx={{ p: 2, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
-                                  <Typography sx={{ color: '#9333ea', fontWeight: 'bold', mb: 1 }}>👔 End-User Impact</Typography>
-                                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>{userImpact}</Typography>
-                                </Card>
-                              </Box>
-
-                              <Box sx={{ p: 2, bgcolor: isDarkMode ? 'rgba(34, 197, 94, 0.1)' : '#f0fdf4', border: '1px solid', borderColor: 'success.main', borderRadius: 1, mb: 3 }}>
-                                <Typography component="span" sx={{ fontWeight: 'bold', color: 'success.main' }}>💡 AURA Suggestion: </Typography>
-                                <Typography component="span" sx={{ color: 'text.primary' }}>{suggestion}</Typography>
-                              </Box>
-
-                              {/* 🔥 THE SCROLLBAR FIX: Outer box controls scrolling, inner box stretches infinitely */}
-                              {originalCode && safeCode && (
-                                <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflowX: 'auto', width: '100%', mt: 2 }}>
-                                  {/* Changed from minWidth: '800px' to width: 'max-content' so it expands to fit the longest line */}
-                                  <Box sx={{ minWidth: '100%', width: 'max-content' }}>
-                                    <Box sx={{ p: 1.5, bgcolor: isDarkMode ? '#1e293b' : '#e2e8f0', borderBottom: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between' }}>
-                                      <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: uiColor, width: '50%' }}>User Proposed Code</Typography>
-                                      <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'success.main', width: '50%' }}>AURA Implementation</Typography>
-                                    </Box>
-                                    <ReactDiffViewer
-                                      oldValue={originalCode}
-                                      newValue={safeCode}
-                                      splitView={true}
-                                      useDarkTheme={isDarkMode}
-                                      hideLineNumbers={false}
-                                      styles={{
-                                        variables: {
-                                          dark: { diffViewerBackground: '#0d1117', addedBackground: 'rgba(34, 197, 94, 0.2)', removedBackground: 'rgba(239, 68, 68, 0.2)' },
-                                          light: { diffViewerBackground: '#ffffff', addedBackground: '#dcfce7', removedBackground: '#fee2e2' }
-                                        },
-                                        // 🔥 Break the table constraints so columns expand properly
-                                        diffContainer: {
-                                          tableLayout: 'auto !important',
-                                        },
-                                        contentText: {
-                                          whiteSpace: 'pre !important',
-                                          fontFamily: 'Consolas, "Courier New", monospace !important',
-                                          fontSize: '13px'
-                                        }
-                                      }}
-                                    />
-                                  </Box>
+                              {/* Render pre-text safely */}
+                              {preText && (
+                                <Box sx={{ mb: 2, color: 'text.primary' }}>
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{preText}</ReactMarkdown>
                                 </Box>
                               )}
+
+                              <Box sx={{ border: '2px solid', borderColor: uiColor, bgcolor: bgColor, p: 3, borderRadius: 2 }}>
+                                <Typography variant="h6" sx={{ color: uiColor, fontWeight: 'bold', mb: 2, display: 'flex', alignItems: 'center' }}>
+                                  {icon} {riskLevel.trim()} RISK: ARCHITECTURE IMPACT DETECTED
+                                </Typography>
+                                
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+                                  <Box sx={{ 
+                                    bgcolor: uiColor, color: 'white', px: 2, py: 1, 
+                                    borderRadius: 1, fontWeight: 'bold', fontSize: '1.1rem',
+                                    boxShadow: `0 0 10px ${shadowColor}`
+                                  }}>
+                                    💥 Blast Radius: {blastRadiusValue} Modules
+                                  </Box>
+                                  <Box sx={{ flex: 1 }}>
+                                    <Typography component="span" sx={{ fontWeight: 'bold', color: 'text.primary' }}>Affected Files: </Typography>
+                                    <Typography component="span" sx={{ color: 'text.secondary' }}>{affectedFiles || 'Analyzing...'}</Typography>
+                                  </Box>
+                                </Box>
+
+                                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr' }, gap: 2, mb: 3 }}>
+                                  <Card sx={{ p: 2, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                                    <Typography sx={{ color: '#1d4ed8', fontWeight: 'bold', mb: 1 }}>👨‍💻 Technical Impact</Typography>
+                                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>{techImpact || '...'}</Typography>
+                                  </Card>
+                                  <Card sx={{ p: 2, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                                    <Typography sx={{ color: '#059669', fontWeight: 'bold', mb: 1 }}>🌍 System Impact</Typography>
+                                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>{systemImpact || '...'}</Typography>
+                                  </Card>
+                                  <Card sx={{ p: 2, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                                    <Typography sx={{ color: '#9333ea', fontWeight: 'bold', mb: 1 }}>👔 End-User Impact</Typography>
+                                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>{userImpact || '...'}</Typography>
+                                  </Card>
+                                </Box>
+
+                                {suggestion && (
+                                  <Box sx={{ p: 2, bgcolor: isDarkMode ? 'rgba(34, 197, 94, 0.1)' : '#f0fdf4', border: '1px solid', borderColor: 'success.main', borderRadius: 1, mb: 3 }}>
+                                    <Typography component="span" sx={{ fontWeight: 'bold', color: 'success.main' }}>💡 AURA Suggestion: </Typography>
+                                    <Typography component="span" sx={{ color: 'text.primary' }}>{suggestion}</Typography>
+                                  </Box>
+                                )}
+
+                                {originalCode && safeCode && (
+                                  <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflowX: 'auto', width: '100%', mt: 2 }}>
+                                    <Box sx={{ minWidth: '100%', width: 'max-content' }}>
+                                      <Box sx={{ p: 1.5, bgcolor: isDarkMode ? '#1e293b' : '#e2e8f0', borderBottom: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between' }}>
+                                        <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: uiColor, width: '50%' }}>User Proposed Code</Typography>
+                                        <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'success.main', width: '50%' }}>AURA Implementation</Typography>
+                                      </Box>
+                                      <ReactDiffViewer
+                                        oldValue={originalCode}
+                                        newValue={safeCode}
+                                        splitView={true}
+                                        useDarkTheme={isDarkMode}
+                                        hideLineNumbers={false}
+                                        styles={{
+                                          variables: {
+                                            dark: { diffViewerBackground: '#0d1117', addedBackground: 'rgba(34, 197, 94, 0.2)', removedBackground: 'rgba(239, 68, 68, 0.2)' },
+                                            light: { diffViewerBackground: '#ffffff', addedBackground: '#dcfce7', removedBackground: '#fee2e2' }
+                                          },
+                                          diffContainer: { tableLayout: 'auto !important' },
+                                          contentText: { whiteSpace: 'pre !important', fontFamily: 'Consolas, "Courier New", monospace !important', fontSize: '13px' }
+                                        }}
+                                      />
+                                    </Box>
+                                  </Box>
+                                )}
+                              </Box>
+
+                              {/* Render post-text safely */}
+                              {postText && (
+                                <Box sx={{ mt: 2, color: 'text.primary' }}>
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{postText}</ReactMarkdown>
+                                </Box>
+                              )}
+
                             </Box>
                           );
                         } else {
@@ -713,34 +916,7 @@ function App() {
                         graphData={graph} 
                         backgroundColor="rgba(0,0,0,0)" 
                         nodeRelSize={8}
-                        nodeColor={(node) => {
-                          if (highlightNodes.size === 0) return '#3b82f6'; 
-                          
-                          const nodeId = String(node.id || '').replace(/\\/g, '/').toLowerCase();
-                          const nodeName = String(node.name || '').toLowerCase();
-                          const idFileName = nodeId.split('/').pop();
-                          
-                          const isHigh = Array.from(highlightNodes).some(f => {
-                              const cleanF = f.toLowerCase();
-                              return idFileName === cleanF || nodeName === cleanF;
-                          });
-                          
-                          return isHigh ? '#ef4444' : (isDarkMode ? '#334155' : '#cbd5e1'); 
-                        }}
-                        linkColor={(link) => {
-                          if (highlightNodes.size === 0) return isDarkMode ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.2)";
-                          
-                          const sourceId = typeof link.source === 'object' ? String(link.source.id || '').replace(/\\/g, '/') : String(link.source).replace(/\\/g, '/');
-                          const targetId = typeof link.target === 'object' ? String(link.target.id || '').replace(/\\/g, '/') : String(link.target).replace(/\\/g, '/');
-                          
-                          const sourceFileName = sourceId.split('/').pop().toLowerCase();
-                          const targetFileName = targetId.split('/').pop().toLowerCase();
-                          
-                          const sHigh = Array.from(highlightNodes).some(f => sourceFileName === f.toLowerCase());
-                          const tHigh = Array.from(highlightNodes).some(f => targetFileName === f.toLowerCase());
-                          
-                          return sHigh || tHigh ? "rgba(239, 68, 68, 0.6)" : "rgba(0,0,0,0.05)";
-                        }}
+                        {...getGraphProps()} 
                       />
                     </Card>
                   )}

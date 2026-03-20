@@ -3,6 +3,7 @@ from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings, ChatNVIDIA
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.output_parsers import StrOutputParser
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,108 +12,93 @@ class ChatAgent:
     def __init__(self):
         self.embeddings = NVIDIAEmbeddings(model="nvidia/nv-embed-v1", model_type="passage")
         self.llm = ChatNVIDIA(model="meta/llama-3.1-70b-instruct", temperature=0.1)
-        
-        # UPGRADE 1: In-memory cache for FAISS databases
         self.active_dbs = {}
-        
-        # UPGRADE 3: Dictionary to store chat history per repository/user
         self.chat_histories = {}
 
     def _get_vector_db(self, repo_name):
-        """Loads DB from disk ONCE, then serves from RAM"""
         db_path = os.path.join("faiss_dbs", f"faiss_db_{repo_name}")
-        
         if repo_name not in self.active_dbs:
-            print(f"💿 Loading {repo_name} database from disk into RAM...")
+            if not os.path.exists(db_path):
+                return None
             self.active_dbs[repo_name] = FAISS.load_local(
-                db_path, 
-                self.embeddings, 
-                allow_dangerous_deserialization=True
+                db_path, self.embeddings, allow_dangerous_deserialization=True
             )
         return self.active_dbs[repo_name]
 
     def ask_question(self, repo_name, question):
-        print(f"💬 Streaming answer for '{repo_name}': '{question}'")
         try:
             vector_db = self._get_vector_db(repo_name)
-            
-            # MMR to ensure diverse code context
-            retriever = vector_db.as_retriever(search_type="mmr", search_kwargs={"k": 12, "fetch_k": 20})
-            docs = retriever.invoke(question)
-            context = "\n".join([d.page_content for d in docs])
-            
-            # Fetch or initialize chat history
+            if not vector_db:
+                raise FileNotFoundError("Database not found.")
+
+            docs = vector_db.similarity_search(question, k=10)
+            context = "\n\n".join([f"--- FILE: {d.metadata.get('source', 'unknown')} ---\n{d.page_content}" for d in docs])
+
             if repo_name not in self.chat_histories:
                 self.chat_histories[repo_name] = []
             history = self.chat_histories[repo_name]
 
-            # 🔥 CDATA PROMPT UPGRADE: Forces strict formatting without squishing
-            # 🔥 THE ANTI-MINIFICATION PROMPT: Forcing the LLM to write real, multi-line Python
+            # Your system instruction preserved with the compulsory suggestion rule added
+            system_instruction = """You are AURA, an elite AI Codebase Assistant for '{repo_name}'. 
+
+CONTEXT:
+{context}
+
+CRITICAL OPERATING RULES:
+1. **Response Intent Detection (STRICT):**
+    - **END-USER MODE:** If the user asks about usage, features, or benefits, provide a warm, user-friendly, non-technical explanation in Markdown.
+    - **THEORY MODE:** For technical/architectural questions without code snippets, answer in Markdown citing `ClassNames` and `file_names.py`.
+    - **AUDIT MODE:** ONLY if a code snippet is provided, output ONLY the <IMPACT_ANALYSIS> block.
+2. **Formatting (CRITICAL - STOP THE ONE-LINE ERROR):**
+    - In <ORIGINAL_CODE> and <SAFE_CODE>, you MUST PRESERVE ALL ORIGINAL NEWLINES AND INDENTATION. 
+    - DO NOT mash multiple lines into one. Every function definition and statement MUST stay on its own line exactly as in Python.
+    - No markdown backticks (```) inside XML tags. Use raw text only.
+3. **Mandatory Suggestions:**
+    - You MUST provide a code suggestion in the <SAFE_CODE> block for ALL risk levels (HIGH, MEDIUM, LOW, and SAFE). 
+
+<IMPACT_ANALYSIS>
+<RISK_LEVEL>HIGH / MEDIUM / LOW / SAFE</RISK_LEVEL>
+<AFFECTED_FILES>List specific files</AFFECTED_FILES>
+<SYSTEM_IMPACT>Explain the domino effect on external APIs or systems.</SYSTEM_IMPACT>
+<TECHNICAL_IMPACT>Explain the backend architecture risk.</TECHNICAL_IMPACT>
+<USER_IMPACT>Explain the frontend/user experience risk.</USER_IMPACT>
+<SUGGESTION>Provide the safe approach.</SUGGESTION>
+<ORIGINAL_CODE>
+# PASTE EXACT USER CODE - PRESERVE ALL NEWLINES AND INDENTATION
+</ORIGINAL_CODE>
+<SAFE_CODE>
+# REFACTORED CODE - PRESERVE ALL NEWLINES AND INDENTATION (COMPULSORY FOR ALL RISK LEVELS)
+</SAFE_CODE>
+</IMPACT_ANALYSIS>"""
+            
+            # 🔥 ENHANCED INSTRUCTION: Added compulsion for code suggestions across all risk levels
+            enhanced_question = f"USER REQUEST:\n{question}\n\n[INSTRUCTION: If code is present above, output ONLY the <IMPACT_ANALYSIS> block. Use multi-line formatting. You MUST provide a code suggestion in <SAFE_CODE> regardless of whether the risk is HIGH, MEDIUM, LOW, or SAFE. DO NOT include the instructions or the chat_agent.py logic in the tags. Output only the snippet provided in the USER REQUEST.]"
+
             prompt = ChatPromptTemplate.from_messages([
-                ("system", 
-                "You are AURA, an elite AI Codebase Assistant. Your task is to answer questions about the '{repo_name}' repository.\n\n"
-                "=========================================\n"
-                "CONTEXT EXTRACTED FROM CODEBASE:\n{context}\n"
-                "=========================================\n\n"
-                "ADAPTIVE PERSONA RULES:\n"
-                "1. **Analyze the Intent:** First, determine if the user is asking a GENERAL question or a TECHNICAL question.\n"
-                "2. **For General Questions (Product Manager Mode):** Explain things simply and clearly. Focus on the project's purpose and business value. Do NOT use heavy technical jargon.\n"
-                "3. **For Technical Questions (Architect Mode):** Dive deep into the logic. Explain the architectural decisions and data flow. Cite specific `ClassNames` and `file_names.py` directly in your sentences.\n"
-                "4. **Code Formatting:** Provide code snippets ONLY if explicitly requested or strictly necessary.\n"
-                "5. **Zero Hallucination:** Only provide answers supported by the provided context.\n"
-                "6. **INTERACTIVE GRAPH (CRITICAL):** If your answer involves specific files, you MUST append a hidden XML tag at the very end of your response so the UI can highlight them. Format exactly like this:\n"
-                "<ui_graph>scrapy/core/engine.py, scrapy/core/scheduler.py</ui_graph>\n"
-                "CRITICAL RULE: Output the tag silently. DO NOT announce that you are doing this. DO NOT say 'Files lighting up in red'. Never reference the graph in your text.\n"
-                "7. **BLAST RADIUS (CRITICAL):** If the user proposes a code modification, you MUST intercept the request and output EXACTLY this XML format.\n"
-                "CRITICAL CODE RULE: You are STRICTLY FORBIDDEN from minifying, compressing, or summarizing code. You MUST use standard markdown code blocks (```python) inside the XML tags. You MUST preserve every single newline, indentation, and space.\n"
-                "<IMPACT_ANALYSIS>\n"
-                "<RISK_LEVEL>HIGH / MEDIUM / LOW/ SAFE</RISK_LEVEL>\n"
-                "<AFFECTED_FILES>List the specific files that will break.</AFFECTED_FILES>\n"
-                "<SYSTEM_IMPACT>Explain the domino effect on external APIs or systems.</SYSTEM_IMPACT>\n"
-                "<TECHNICAL_IMPACT>Explain the backend architecture risk.</TECHNICAL_IMPACT>\n"
-                "<USER_IMPACT>Explain the frontend/user experience risk.</USER_IMPACT>\n"
-                "<SUGGESTION>Provide the safe approach.</SUGGESTION>\n"
-                "<ORIGINAL_CODE>\n"
-                "```python\n"
-                "# PASTE THE EXACT USER CODE HERE. DO NOT SUMMARIZE IMPORTS. DO NOT REMOVE NEWLINES.\n"
-                "```\n"
-                "</ORIGINAL_CODE>\n"
-                "<SAFE_CODE>\n"
-                "```python\n"
-                "# WRITE THE REFACTORED CODE HERE. YOU MUST USE MULTIPLE LINES AND PROPER PYTHON INDENTATION.\n"
-                "```\n"
-                "</SAFE_CODE>\n"
-                "</IMPACT_ANALYSIS>"
-                ),
+                ("system", system_instruction),
                 MessagesPlaceholder(variable_name="history"),
-                ("human", "{question}")
+                ("human", "{enhanced_question}")
             ])
 
-            chain = prompt | self.llm
+            chain = prompt | self.llm | StrOutputParser()
 
-            # Create a generator function to yield tokens as they arrive
             def stream_generator():
                 full_response = ""
-                # .stream() yields chunks from the LLM in real-time
                 for chunk in chain.stream({
                     "repo_name": repo_name,
                     "context": context,
                     "history": history,
-                    "question": question
+                    "enhanced_question": enhanced_question
                 }):
-                    full_response += chunk.content
-                    yield chunk.content
-                
-                # Once streaming is complete, save the interaction to memory
+                    full_response += chunk
+                    yield chunk
+
                 history.append(HumanMessage(content=question))
                 history.append(AIMessage(content=full_response))
 
-            # Return the generator object
             return stream_generator()
-            
+
         except Exception as e:
-            print(f"Chat Error: {e}")
-            # Yield the error as a stream so the frontend doesn't break
             def error_stream():
-                yield f"⚠️ Could not load the knowledge base for **{repo_name}**. Make sure you have analyzed this repository first!"
+                yield f"⚠️ AURA Error: {str(e)}"
             return error_stream()
